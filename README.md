@@ -1,7 +1,7 @@
 # jui-chart-vue
 
-A from-scratch Vue 3 Composition API + TypeScript port of [jui-chart](../jui-chart)'s (its
-engine is [`juijs-graph`](../jui-chart/node_modules/juijs-graph)) core rendering pipeline, plus
+A from-scratch Vue 3 Composition API + TypeScript port of [jui-chart](https://github.com/juijs/jui-chart)'s (its
+engine is [`juijs-graph`](https://github.com/juijs/jui-graph)) core rendering pipeline, plus
 25 chart types so far: **line, area, bar/column, pie, donut, scatter, bubble, range area, range
 bar/column, candlestick, equalizer, rate bar, bar gauge, full gauge, pin, select box, heatmap,
 heatmap scatter, pyramid, arc equalizer, timeline, focus, flame, treemap, topology**. Line/area/scatter/bar all also support a `stacked` prop
@@ -9,7 +9,7 @@ heatmap scatter, pyramid, arc equalizer, timeline, focus, flame, treemap, topolo
 `stackbar.js`/`stackcolumn.js`), `BarChart` additionally supports a `normalize` prop (100%-
 normalized stacking, ported from `fullstackbar.js`/`fullstackcolumn.js`) and an `equalizer` prop
 (splits each `stacked` segment into a train of small blocks, ported from `equalizerbar.js`/
-`equalizercolumn.js`). See [`../jui-chart`](../jui-chart) for the original library this ports.
+`equalizercolumn.js`). See [jui-chart](https://github.com/juijs/jui-chart) for the original library this ports.
 
 ## Scope
 
@@ -117,7 +117,7 @@ npm run build:lib  # typecheck + build the publishable package into dist-lib/
 ```
 
 The demo app (`src/App.vue` + `src/router.ts`) is a small vue-router shell, one page per chart
-type under `src/pages/`: `/bar` (reproduces [`../jui-chart/examples/bar.html`](../jui-chart/examples/bar.html)
+type under `src/pages/`: `/bar` (reproduces [jui-chart's `examples/bar.html`](https://github.com/juijs/jui-chart/blob/master/examples/bar.html)
 exactly, plus a horizontal-orientation variant of the same data), `/line`, `/area`, `/pie`,
 `/donut`, `/scatter`, `/bubble`, `/axis-orient` (configurable `axis.x.orient`/`axis.y.orient`).
 
