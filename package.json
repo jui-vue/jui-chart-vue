@@ -1,0 +1,59 @@
+{
+  "name": "jui-chart-vue",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A Vue 3 chart library: line, area, bar/column, pie, donut. A from-scratch Vue port of jui-chart's (juijs-graph) core rendering engine.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist-lib/jui-chart-vue.cjs.js",
+  "module": "./dist-lib/jui-chart-vue.es.js",
+  "types": "./dist-lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist-lib/index.d.ts",
+      "import": "./dist-lib/jui-chart-vue.es.js",
+      "require": "./dist-lib/jui-chart-vue.cjs.js"
+    },
+    "./style.css": "./dist-lib/style.css"
+  },
+  "files": [
+    "dist-lib"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "build:lib": "vue-tsc -p tsconfig.lib.json --noEmit && vite build -c vite.lib.config.ts"
+  },
+  "peerDependencies": {
+    "vue": "^3.4.0"
+  },
+  "_dependencyNotes": {
+    "juijs-graph": "Deliberate, PERMANENT exception to this project's otherwise strict zero-runtime-dependency-on-jui-chart/juijs-graph rule (Phases A-D reimplemented every SVG-engine file from scratch instead) - see PORT_STATUS.md's Phase E policy note. Applies ONLY to files that are generic, non-chart-domain utility code (e.g. kinetic.js's standalone physics object, imported as-is + typed via src/vendor/kinetic.d.ts rather than hand-ported) - real chart/axis/rendering-engine logic is still planned for an eventual genuine Vue/TS port and never gets this treatment. Pinned to the exact version jui-chart/package.json itself uses as its own juijs-graph devDependency.",
+    "treemap-squared (imranghory/treemap-squared, MIT, 2012)": "NOT listed under \"dependencies\" below because it was never published to npm (confirmed via `npm view treemap-squared` -> 404, GitHub-only) - there is no installable package to reference, so it is vendored as a raw file instead, same as src/vendor/kinetic.js (which similarly has no matching npm dependency entry since it lives in jui-chart's own source tree, not the installable juijs-graph package). PORT_STATUS.md's Phase F audit traced useTreemap.ts's squarify core (Container/normalize/squarify/improvesRatio/calculateRatio/flattenTreemap/sumMultidimensionalArray, plus the exact \"the pseudocode in the Bruls paper has the direction of the comparison wrong\" bugfix comment) to this specific library - jui-chart's own treemap.js is itself a restructured adaptation of it, not original code. The real upstream source is vendored near-unmodified at src/vendor/treemap-squared.js (see that file's own header comment for the full provenance/license text and the one line added for ES-module compatibility) and typed via src/vendor/treemap-squared.d.ts; src/composables/useTreemap.ts's squarifyRects() is a thin shim delegating to it, verified byte-identical (exact spec fixtures) / sub-1e-9-relative-error (random fuzz + non-integer inputs) against the prior hand-port before the swap - see src/vendor/treemap-squared.spec.ts and useTreemap.ts's squarifyRects() doc comment."
+  },
+  "dependencies": {
+    "juijs-graph": "1.1.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/coverage-v8": "^5.0.1",
+    "@vue/test-utils": "^2.5.0",
+    "@vue/tsconfig": "^0.9.1",
+    "jsdom": "^30.0.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vite-plugin-dts": "^5.1.0",
+    "vitest": "^5.0.1",
+    "vue": "^3.5.42",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^3.3.11"
+  }
+}
