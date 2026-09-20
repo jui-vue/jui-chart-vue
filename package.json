@@ -8,11 +8,11 @@
   "author": "search5",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jui-vue/jui-chart-vue.git"
+    "url": "git+https://github.com/juijs-vue/jui-chart-vue.git"
   },
-  "homepage": "https://github.com/jui-vue/jui-chart-vue#readme",
+  "homepage": "https://github.com/juijs-vue/jui-chart-vue#readme",
   "bugs": {
-    "url": "https://github.com/jui-vue/jui-chart-vue/issues"
+    "url": "https://github.com/juijs-vue/jui-chart-vue/issues"
   },
   "keywords": [
     "vue",
