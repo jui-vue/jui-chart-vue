@@ -5,6 +5,24 @@
   "description": "A Vue 3 chart library: line, area, bar/column, pie, donut. A from-scratch Vue port of jui-chart's (juijs-graph) core rendering engine.",
   "type": "module",
   "license": "MIT",
+  "author": "search5",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jui-vue/jui-chart-vue.git"
+  },
+  "homepage": "https://github.com/jui-vue/jui-chart-vue#readme",
+  "bugs": {
+    "url": "https://github.com/jui-vue/jui-chart-vue/issues"
+  },
+  "keywords": [
+    "vue",
+    "vue3",
+    "chart",
+    "charts",
+    "svg",
+    "data-visualization",
+    "typescript"
+  ],
   "main": "./dist-lib/jui-chart-vue.cjs.js",
   "module": "./dist-lib/jui-chart-vue.es.js",
   "types": "./dist-lib/index.d.ts",
