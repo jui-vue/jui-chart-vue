@@ -221,7 +221,7 @@ function groupId(g: BlockGroup): string {
 
     <text :x="cx" :y="cy" text-anchor="middle" :dy="theme('arcEqualizerFontSize') / 3" :font-size="theme('arcEqualizerFontSize')" :fill="theme('arcEqualizerFontColor')">{{ formatTotal(total) }}</text>
 
-    <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+    <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
 
     <ChartTooltip
       v-if="props.showTooltip && hover"

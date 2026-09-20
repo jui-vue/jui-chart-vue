@@ -248,6 +248,20 @@ const axisYEqualizerColReversed: AxisConfig = { type: 'range', domain: (d) => d.
       the common non-reversed case.
     </p>
     <BarChart :data="equalizerData" :axis-x="axisXEqualizerCol" :axis-y="axisYEqualizerColReversed" :target="equalizerTargets" orient="column" stacked equalizer :inner-padding="4" :equalizer-unit="3" title="equalizer (column, reversed y)" />
+
+    <h3>theme="gradient" / theme="pattern" (theme/gradient.js, theme/pattern.js)</h3>
+    <p class="desc">
+      Both themes' <code>colors</code> tokens (<code>"linear(top) #c1,0.9 #c2"</code> gradient-strings / <code>"pattern-jennifer-NN"</code>
+      pattern-def names) now resolve to real SVG defs, matching upstream: see <code>colorParser.ts</code> (the ported
+      <code>parseGradient</code>/<code>parseAttr</code>/<code>parseStop</code> DSL parser), <code>patternClassic.ts</code> (the 12 ported
+      <code>pattern/classic.js</code> defs), and <code>useColorResolver.ts</code> (the per-chart hash-dedup + `&lt;defs&gt;` registry - see
+      <code>useTheme.ts</code>'s header doc comment for the full pipeline writeup). Bars below render real
+      <code>&lt;linearGradient&gt;</code>/<code>&lt;pattern&gt;</code> fills via a <code>url(#id)</code> reference, not the raw opaque strings.
+      <code>patternTheme</code>'s solid <code>barBorderColor:"#000"</code>/<code>barBorderWidth:1</code> override remains faithfully visible
+      alongside it (a real, non-color token, unaffected by this pipeline).
+    </p>
+    <BarChart :data="data" :axis-x="axisX" :axis-y="axisY" :target="['sales', 'profit']" orient="column" theme="gradient" title="gradient theme" />
+    <BarChart :data="data" :axis-x="axisX" :axis-y="axisY" :target="['sales', 'profit']" orient="column" theme="pattern" title="pattern theme" />
   </div>
 </template>
 

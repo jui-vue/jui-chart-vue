@@ -1,4 +1,4 @@
-export type ThemeName = 'classic' | 'dark'
+export type ThemeName = 'classic' | 'dark' | 'gradient' | 'pattern'
 
 /** A single data row backing a chart. Keys referenced by `target`/`domain` index into this. */
 export type DataRow = Record<string, any>

@@ -293,7 +293,7 @@ function onWedgeEvent(type: string, w: Wedge) {
       {{ total }}
     </text>
 
-    <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+    <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
 
     <ChartTooltip
       v-if="props.showTooltip && hover"

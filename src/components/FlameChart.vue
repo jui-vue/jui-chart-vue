@@ -325,7 +325,7 @@ function onNodeEvent(type: ChartElementEventType, rn: RenderNode, e: MouseEvent)
       </g>
     </g>
 
-    <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+    <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
   </svg>
 </template>
 

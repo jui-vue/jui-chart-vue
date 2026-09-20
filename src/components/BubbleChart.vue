@@ -78,6 +78,7 @@ import { pieActiveOpacity } from '../composables/useActive'
 import { bubbleFormatText, bubbleRadius, bubbleRadiusDomain } from '../composables/useBubble'
 import { useChartLayout } from '../composables/useChartLayout'
 import { toSeriesScale, useSeries } from '../composables/useSeries'
+import { useColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
 import ChartBase from './ChartBase.vue'
 import ChartTitle from './ChartTitle.vue'
@@ -178,7 +179,8 @@ const { axisX, axisY } = useChartLayout(
 )
 
 const themeName = toRef(props, 'theme')
-const { theme, color: themeColor } = useTheme(themeName)
+const colorResolver = useColorResolver()
+const { theme, color: themeColor } = useTheme(themeName, colorResolver)
 
 function pickColor(i: number): string {
   return props.colors?.[i] ?? themeColor(i)
@@ -261,7 +263,7 @@ const hover = computed<Point | null>(() => (hoverIndex.value != null ? (points.v
 </script>
 
 <template>
-  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid">
+  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid" :color-resolver="colorResolver">
     <g>
       <g v-for="(p, i) in points" :key="i" :data-series="p.key">
         <circle
@@ -288,7 +290,7 @@ const hover = computed<Point | null>(() => (hoverIndex.value != null ? (points.v
     </g>
 
     <template #overlay>
-      <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+      <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
       <g v-if="props.showTooltip && hover">
         <ChartTooltip
           visible

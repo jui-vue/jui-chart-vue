@@ -60,6 +60,10 @@ export interface TopologyPoint {
 // Layout - ported from `grid/topologytable.js`'s `chart.topology.sort.*`.
 // ---------------------------------------------------------------------------------------------
 
+/** Shape shared by `layoutTopologyRandom`/`layoutTopologyLinear` and any caller-supplied custom
+ * layout passed as `TopologyChart`'s `sort` prop - see that prop's doc comment for why. */
+export type TopologyLayoutFn = (count: number, area: TopologyArea, space: number, rng?: () => number) => TopologyPoint[]
+
 /**
  * Ported from `chart.topology.sort.random`: each node lands at a uniformly random point inside
  * `area` (inset by `space` on the right/bottom so the node stays inside the area). `rng` defaults

@@ -1,4 +1,5 @@
-import { radian, scaleValue } from './mathUtil'
+import { colorUtil, PolygonCore, CubePolygon } from 'jui-graph-ts'
+import { radian } from './mathUtil'
 
 /**
  * Hand-ported 3D vertex transform/projection math, sourced from THREE files with no license
@@ -50,13 +51,6 @@ export interface Vector3 {
 
 /** A plain 4x4 matrix, row-major (`m[row][col]`), matching `transform.js`'s `Float32Array[4]` shape. */
 export type Matrix4 = [[number, number, number, number], [number, number, number, number], [number, number, number, number], [number, number, number, number]]
-
-const IDENTITY4: Matrix4 = [
-  [1, 0, 0, 0],
-  [0, 1, 0, 0],
-  [0, 0, 1, 0],
-  [0, 0, 0, 1],
-]
 
 /** Ported from `transform.js`'s `matrix("move3d", dx, dy, dz)`. */
 export function move3dMatrix(dx: number, dy: number, dz: number): Matrix4 {
@@ -184,36 +178,35 @@ export interface Center3 {
  * default (`calculate3d()` overwrites every polygon's `.perspective` with `axis.perspective`
  * before calling `rotate()`, so in practice it's always axis-level, not the polygon's own field).
  */
+/**
+ * Phase G migration: delegates to jui-graph-ts's real `PolygonCore.rotate()` (`polygon/core.ts`)
+ * instead of this file's own hand-ported matrix-builder functions above. `PolygonCore.rotate()`
+ * is a stateful instance method (mutates `this.vertices`/`this.vectors` in place) where this
+ * function is a pure function returning new vectors - the adapter constructs a throwaway
+ * `PolygonCore`, seeds its `vertices` from the `Vertex4[]` input (plain `number[]` rows - `Transform`'s
+ * `matrixDispatch()`/`calculate()` only ever index into rows positionally, so a plain array works
+ * identically to `CubePolygon`'s `Float32Array` rows; the float32 rounding this migration's
+ * documented ~1e-6 drift comes from is intrinsic to `Transform.custom()`'s own `matrix3d()`
+ * call, not from the input row type), calls `.rotate(depth, degree, cx, cy, cz)`, then reshapes
+ * `core.vertices` back into this function's own `Vector3[]` return shape - preserving today's
+ * pure-function call signature exactly so `useDot3d.ts`/`useColumn3d.ts`/`useLine3d.ts` need no
+ * changes.
+ *
+ * See `polygon/core.ts`'s own header comment (and this file's PORT_STATUS.md Batch 3 writeup) for
+ * the full documented float32-precision deviation: `PolygonCore.rotate()` reuses the real
+ * `Transform` class, whose `matrixDispatch()` routes 4x4 (3D) operations through a
+ * `Float32Array`-producing `matrix3d()`/`deepMatrix3d()` at a call site where the pristine
+ * original engine's `Transform.calculate()` always used plain-array `math.matrix()` instead -
+ * introducing one extra layer of float32-precision rounding on the final per-point dot-product
+ * sum, Node-cross-checked to within ~1e-6 relative of this function's own previous full-float64
+ * implementation (well under any rendering-visible threshold).
+ */
 export function rotatePolygonVertices(vertices: Vertex4[], depth: number, degree: Degree3, center: Center3, perspective = 0.9): Vector3[] {
-  const toCenter = move3dMatrix(center.x, center.y, center.z)
-  const rx = rotate3dxMatrix(degree.x)
-  const ry = rotate3dyMatrix(degree.y)
-  const rz = rotate3dzMatrix(degree.z)
-  const fromCenter = move3dMatrix(-center.x, -center.y, -center.z)
-
-  let m = multiplyMatrixMatrix4(IDENTITY4, toCenter)
-  m = multiplyMatrixMatrix4(m, rx)
-  m = multiplyMatrixMatrix4(m, ry)
-  m = multiplyMatrixMatrix4(m, rz)
-  m = multiplyMatrixMatrix4(m, fromCenter)
-
-  return vertices.map((v) => {
-    const rotated = multiplyMatrixVector4(m, v)
-
-    const far = Math.abs(rotated.z - depth)
-    const s = scaleValue(far, 0, depth, perspective, 1)
-
-    const scaleToCenter = move3dMatrix(center.x, center.y, depth / 2)
-    const scaleMatrix = scale3dMatrix(s, s, s)
-    const scaleFromCenter = move3dMatrix(-center.x, -center.y, -depth / 2)
-
-    let sm = multiplyMatrixMatrix4(IDENTITY4, scaleToCenter)
-    sm = multiplyMatrixMatrix4(sm, scaleMatrix)
-    sm = multiplyMatrixMatrix4(sm, scaleFromCenter)
-
-    const scaled = multiplyMatrixVector4(sm, rotated)
-    return { x: scaled.x, y: scaled.y, z: scaled.z }
-  })
+  const core = new PolygonCore()
+  core.perspective = perspective
+  core.vertices = vertices.map((v) => [v.x, v.y, v.z, v.w])
+  core.rotate(depth, degree, center.x, center.y, center.z)
+  return core.vertices.map((v: number[] | Float32Array) => ({ x: v[0], y: v[1], z: v[2] }))
 }
 
 /** The farthest (max) z among a set of already-rotated vectors - ported from `PolygonCore.max()`
@@ -261,31 +254,33 @@ export function computePolygon3dProjection(area: { x: number; y: number; width: 
  * geometry `usePolygon3d.ts` didn't need for `dot3d.js` (which only ever built 1-4-vertex point/
  * line/face polygons, never a full box) - `column3d.js`'s `createColumn` is the first, and only,
  * `juijs-graph` 3D brush in this port that needs a cube.
+ *
+ * Phase G migration: delegates to jui-graph-ts's real `CubePolygon` (`polygon/cube.ts`, `extends
+ * PolygonCore`) instead of building the 8 vertices locally. `CubePolygon`'s constructor builds the
+ * exact same 8 `Float32Array([x,y,z,1])` vertices, in the exact same order, that this function's
+ * own hand-port already used (cross-checked directly against this function by `cube.ts`'s own
+ * header comment) - the adapter constructs a throwaway `CubePolygon`, then reshapes its
+ * `vertices` (`Float32Array` rows) back into this function's own `Vertex4[]` return shape.
+ * Integer pixel coordinates (as exercised by `usePolygon3d.spec.ts`'s own hand-traced test) are
+ * exactly representable in float32, so no epsilon tolerance is needed for this step in isolation -
+ * only the subsequent `rotatePolygonVertices()`/`PolygonCore.rotate()` call carries the documented
+ * float32 rotation drift.
  */
 export function cubeVertices(x: number, y: number, z: number, w: number, h: number, d: number): Vertex4[] {
-  return [
-    vertex(x, y, z),
-    vertex(x + w, y, z),
-    vertex(x + w, y, z + d),
-    vertex(x, y, z + d),
-    vertex(x, y + h, z),
-    vertex(x + w, y + h, z),
-    vertex(x + w, y + h, z + d),
-    vertex(x, y + h, z + d),
-  ]
+  const core = new CubePolygon(x, y, z, w, h, d)
+  return core.vertices.map((v: number[] | Float32Array) => vertex(v[0], v[1], v[2]))
 }
 
 /** Ported from `chart.polygon.cube`'s `this.faces` - 6 quad faces as index quadruples into
  *  `cubeVertices()`'s 8-vertex array, in the original's own literal order (also the paint order
- *  `column3d.js` appends each face `<polygon>` in - preserved, not resorted). */
-export const CUBE_FACES: readonly (readonly [number, number, number, number])[] = [
-  [0, 1, 2, 3],
-  [3, 2, 6, 7],
-  [0, 3, 7, 4],
-  [1, 2, 6, 5],
-  [0, 1, 5, 4],
-  [4, 5, 6, 7],
-]
+ *  `column3d.js` appends each face `<polygon>` in - preserved, not resorted).
+ *
+ * Phase G migration: sourced directly from a throwaway `CubePolygon` instance's own `this.faces`
+ * (constructor-args-independent - `CubePolygon`'s face-index literals never reference `x`/`y`/`z`/
+ * `w`/`h`/`d`) rather than duplicating the same 6 quadruples as a second hand-maintained literal -
+ * single source of truth in jui-graph-ts, confirmed byte-identical to this constant's previous
+ * value. */
+export const CUBE_FACES: readonly (readonly [number, number, number, number])[] = new CubePolygon(0, 0, 0, 0, 0, 0).faces
 
 /**
  * Ported from `juijs-graph/src/util/color.js`'s `darken(color, rate) { return this.lighten(color,
@@ -294,19 +289,18 @@ export const CUBE_FACES: readonly (readonly [number, number, number, number])[] 
  * confirmed-preserved source quirk: the SAME `polygon{Column,Line}BorderOpacity` theme number
  * (0.5 / 0.7) is reused BOTH as this darken-rate argument AND, separately, as the stroke's
  * `stroke-opacity` SVG attribute (see `useColumn3d.ts`/`useLine3d.ts`) - not two independent
- * config values, ported literally. No license header in `util/color.js`, and this exact
- * `lighten`/`darken` shape (strip non-hex chars, per-channel `c + c*rate` clamped to [0,255],
- * zero-padded hex rejoin) is common hand-rolled color-math with no single matching published
- * library found via web search for "lighten" "darken" hex color javascript `c + (c * rate)` -
- * same "bespoke, hand-ported" bucket as `rotatePolygonVertices` above, not vendored+`.d.ts`'d.
+ * config values, ported literally.
+ *
+ * Phase G migration: delegates to jui-graph-ts's real `colorUtil.darken()` (`util/color.ts`,
+ * itself `darken(color, rate) { return lighten(color, -rate) }` over a real ported `lighten()`).
+ * Direct comparison (not just the "same shape, unverified" hedge the Phase G plan's evaluation
+ * bullet raised) confirms this is byte-identical to the hand-port below: same non-hex-char strip
+ * regex, same per-channel `c + c*-rate` clamped to `[0, 255]`, same `Math.round`, same
+ * `('00' + x).substring(x.length)` zero-pad. Unrelated to `useColorScale.ts`'s `createColorScale`
+ * (later re-evaluated separately - see that file's own doc comment: its per-segment interpolation
+ * now composes jui-graph-ts's `colorUtil.scale()`, but the `MultiStopColorScale` class itself stays
+ * in jui-chart-vue, not promoted into jui-graph-ts).
  */
 export function darkenColor(color: string, rate: number): string {
-  const hex = color.replace(/[^0-9a-f]/gi, '')
-  const channels: string[] = []
-  for (let i = 0; i < 6; i += 2) {
-    const c = parseInt(hex.substring(i, i + 2), 16)
-    const adjusted = Math.round(Math.min(Math.max(0, c + c * -rate), 255)).toString(16)
-    channels.push(('00' + adjusted).substring(adjusted.length))
-  }
-  return '#' + channels.join('')
+  return colorUtil.darken(color, rate)
 }

@@ -136,6 +136,7 @@ import {
   type TopologyArea,
   type TopologyBuiltEdge,
   type TopologyEdgeDataRow,
+  type TopologyLayoutFn,
   type TopologyNodeRow,
   type TopologyPositionedNode,
 } from '../composables/useTopology'
@@ -154,9 +155,18 @@ const props = withDefaults(
     height?: number
     theme?: ThemeName
     title?: string
-    /** `grid.sort` - `"linear"` (default, source's own default) or `"random"`. See this file's
-     * header comment for the real (non-physics, non-caller-coordinate) algorithms. */
-    sort?: 'linear' | 'random'
+    /** `grid.sort` - `"linear"` (default, source's own default), `"random"`, or a caller-supplied
+     * `TopologyLayoutFn` for a custom placement algorithm. See this file's header comment for the
+     * two built-in algorithms (real, non-physics, non-caller-coordinate).
+     *
+     * Ports source's real, previously-unnoticed extension hook: `topologytable.js`'s
+     * `TopologyTableGrid.drawBefore()` looks up `jui.include("chart.topology.sort."+this.grid.sort)`
+     * and, if that's not a function, falls back to `jui.include(this.grid.sort)` - i.e. a caller
+     * can `jui.use()` their own sort module and reference it by name, entirely outside the
+     * `"linear"`/`"random"` pair. This port has no runtime module registry (Phase 0 principle, see
+     * PORT_STATUS.md) so there's nothing to look a string up in - passing the function itself
+     * achieves the same extensibility without one. */
+    sort?: 'linear' | 'random' | TopologyLayoutFn
     /** `grid.space` - the layout grid's cell size (default `50`, source's own default). */
     space?: number
     /** `brush.nodeTitle` - a bold label under each node. */
@@ -257,8 +267,29 @@ interface RenderNode extends TopologyPositionedNode {
   imageHref: string | null
 }
 
+/**
+ * Replaces source's `jui.include("chart.topology.sort." + this.grid.sort)` string-key registry
+ * lookup (`grid/topologytable.js`'s `TopologyTableGrid.drawBefore()`) with a statically-imported
+ * `Record` keyed by the exact same literal union the built-in `sort` values use - not a ternary,
+ * deliberately: TypeScript requires every key of `'linear' | 'random'` to be present, so a future
+ * third built-in sort strategy is a compile error here until this map is updated too, instead of
+ * silently falling through an `else` branch the way a ternary would.
+ */
+const topologySortStrategies: Record<'linear' | 'random', TopologyLayoutFn> = {
+  linear: layoutTopologyLinear,
+  random: layoutTopologyRandom,
+}
+
+/**
+ * `sort` resolution: a plain function (the `jui.use()`-custom-module-fallback replacement - see
+ * `sort` prop's doc comment) is called directly; a string looks up one of the two built-ins above.
+ */
+function resolveTopologySort(sort: 'linear' | 'random' | TopologyLayoutFn): TopologyLayoutFn {
+  return typeof sort === 'function' ? sort : topologySortStrategies[sort]
+}
+
 const positionedNodes = computed<RenderNode[]>(() => {
-  const points = props.sort === 'random' ? layoutTopologyRandom(props.data.length, area.value, props.space) : layoutTopologyLinear(props.data.length, area.value, props.space)
+  const points = resolveTopologySort(props.sort)(props.data.length, area.value, props.space)
   const baseRadius = theme('topologyNodeRadius')
 
   return props.data.map((d, i) => {
@@ -606,7 +637,7 @@ onBeforeUnmount(() => {
       </g>
     </g>
 
-    <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+    <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
   </svg>
 </template>
 

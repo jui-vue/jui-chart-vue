@@ -1,8 +1,31 @@
+import { linearScaleUtil, ordinalScaleUtil } from 'jui-graph-ts'
 import { div, fixed, nice } from './mathUtil'
 
 /**
  * Linear + ordinal scale factories, ported from juijs-graph's `util/scale.js`. Plain functions
  * (not Vue reactivity primitives) - `useAxis` wraps them in `computed()`.
+ *
+ * Phase G migration: `createLinearScale`/`createOrdinalScale` now delegate their core computation
+ * to jui-graph-ts's real `linearScaleUtil.linear()`/`ordinalScaleUtil.ordinal()` (`util/scale/
+ * linear.ts`/`util/scale/ordinal.ts`) - **not** the collision-prone `scaleUtil` (`util/scale.ts`)
+ * namespace, which has its own separately-duplicated, subtly different `linear()`/`ordinal()` (see
+ * jui-graph-ts's `util/scale.ts` header comment - its embedded `ordinal().invert()` is a simpler,
+ * non-`rangePoints`-aware variant that does NOT match this file's `createOrdinalScale.invert()`).
+ * Both this file's own exported factory signatures (constructor-arg style: `createLinearScale
+ * (domain, range, clamp)`) stay unchanged for every existing call site - only the internals adapt
+ * to the jui-graph-ts builder-style API (`.domain(values)`/`.range(values)`/`.clamp(isClamp)`).
+ *
+ * One deliberate exception: `createLinearScale.ticks()` does NOT delegate to jui-graph-ts's own
+ * `linear().ticks()`, even though the rest of the scale does. jui-graph-ts's `ticks()` internally
+ * calls ITS OWN `mathUtil.nice()`, which (confirmed by direct testing) throws `ReferenceError:
+ * niceFraction is not defined` whenever `isNice: true` - a faithfully-preserved upstream bug (see
+ * `mathUtil.ts`'s own `nice()` doc comment for the full writeup). This project's local `nice()`
+ * does not have that bug, so `ticks()` stays a local implementation built on the (safe, jui-graph-ts
+ * -delegated) `fixed()` and the (deliberately local, non-delegated) `nice()` from `mathUtil.ts` -
+ * unchanged in logic from before this migration, just reading the domain through the new delegated
+ * core. `useScale.spec.ts`'s "rounds to nice 1/2/5/10 spacing when isNice is true" test is exactly
+ * what would break if `ticks()` were delegated wholesale - this is a real discrepancy the Phase G
+ * plan's `mathUtil.ts` bullet flagged in principle but didn't explicitly connect to this file.
  */
 
 export interface LinearScale {
@@ -24,65 +47,59 @@ export interface LinearScale {
  * unless `clampToRange` is set, matching the original's slightly asymmetric extrapolation.
  */
 export function createLinearScale(domain: [number, number], range: [number, number], clampToRange = false): LinearScale {
-  let _domain = domain
-  let _range = range
+  // Core interpolation/min/max/invert/clamp delegate to jui-graph-ts's real `linearScaleUtil.linear()`
+  // (builder-style API: `.domain(values)`/`.range(values)`/`.clamp(isClamp)`, called in the same
+  // order the original `util.scale.linear()` chain uses - domain before range, since `.range()`
+  // computes its own `rate` from the domain span already set by `.domain()`).
+  const core = linearScaleUtil.linear()
+  core.domain([domain[0], domain[1]])
+  core.range([range[0], range[1]])
+
+  // jui-graph-ts's `.clamp(isClamp)` is a write-only setter (calling it with no args resets to
+  // `false`) - track the current value locally so `scale.clamp` stays a readable/writable property,
+  // matching this file's own `LinearScale.clamp: boolean` shape.
   let _clamp = clampToRange
+  core.clamp(_clamp)
+
   let _rangeBand: number | null = null
 
-  const scale = ((x: number): number => {
-    const domainMin = Math.min(_domain[0], _domain[1])
-    const domainMax = Math.max(_domain[0], _domain[1])
-    const distDomain = _domain[1] - _domain[0]
-
-    if (domainMax < x) {
-      if (_clamp) return scale(domainMax)
-      const rangeMax = Math.max(_range[0], _range[1])
-      const rangeMin = Math.min(_range[0], _range[1])
-      const rate = distDomain === 0 ? 0 : Math.abs(rangeMax - rangeMin) / distDomain
-      return _range[0] + Math.abs(x - _domain[0]) * rate
-    } else if (domainMin > x) {
-      if (_clamp) return scale(domainMin)
-      const rangeMax = Math.max(_range[0], _range[1])
-      const rangeMin = Math.min(_range[0], _range[1])
-      const rate = distDomain === 0 ? 0 : Math.abs(rangeMax - rangeMin) / distDomain
-      return _range[0] - Math.abs(x - _domain[0]) * rate
-    } else {
-      const pos = distDomain === 0 ? 0 : (x - _domain[0]) / distDomain
-      return _range[0] + (_range[1] - _range[0]) * pos
-    }
-  }) as LinearScale
+  const scale = ((x: number): number => core(x)) as LinearScale
 
   Object.defineProperty(scale, 'domain', {
-    get: () => _domain,
+    get: () => core.domain() as [number, number],
     set: (v: [number, number]) => {
-      _domain = v
+      core.domain([v[0], v[1]])
     },
   })
   Object.defineProperty(scale, 'range', {
-    get: () => _range,
+    get: () => core.range() as [number, number],
     set: (v: [number, number]) => {
-      _range = v
+      core.range([v[0], v[1]])
     },
   })
   Object.defineProperty(scale, 'clamp', {
     get: () => _clamp,
     set: (v: boolean) => {
       _clamp = v
+      core.clamp(v)
     },
   })
 
-  scale.min = () => Math.min(_domain[0], _domain[1])
-  scale.max = () => Math.max(_domain[0], _domain[1])
+  scale.min = () => core.min()
+  scale.max = () => core.max()
 
-  scale.invert = (y: number) => {
-    const inverse = createLinearScale([_range[0], _range[1]], [_domain[0], _domain[1]])
-    return inverse(y)
-  }
+  scale.invert = (y: number) => core.invert(y)
 
+  // NOT delegated to `core.ticks()` - see this file's header comment for why (jui-graph-ts's own
+  // `ticks()` inherits a throwing `nice(isNice: true)` bug this project's local `nice()` avoids).
+  // Otherwise unchanged from before this migration - reads the domain through the delegated core,
+  // steps with the (now jui-graph-ts-delegated) `fixed()`, and reuses `scale(x)` (which now calls
+  // through to `core`) for the rangeBand pixel-distance measurement.
   scale.ticks = (count = 10, isNice = false): number[] => {
-    if (_domain[0] === 0 && _domain[1] === 0) return []
+    const [d0, d1] = core.domain() as [number, number]
+    if (d0 === 0 && d1 === 0) return []
 
-    const obj = nice(_domain[0], _domain[1], count || 10, isNice)
+    const obj = nice(d0, d1, count || 10, isNice)
     const arr: number[] = []
 
     let start = obj.min
@@ -99,7 +116,7 @@ export function createLinearScale(domain: [number, number], range: [number, numb
       arr.push(end)
     }
 
-    if (_domain[0] > _domain[1]) {
+    if (d0 > d1) {
       arr.reverse()
     }
 
@@ -140,32 +157,22 @@ export interface OrdinalScale {
  * `rangeBands()` (used by unported brush types) is intentionally not ported.
  */
 export function createOrdinalScale(domain: (string | number)[], interval: [number, number], padding = 0): OrdinalScale {
-  const step = domain.length
-  const unit = (interval[1] - interval[0] - padding) / step
+  // Delegates to jui-graph-ts's real `ordinalScaleUtil.ordinal()`, specifically its
+  // `.rangePoints()` mode - see this file's header comment for why `ordinalScaleUtil` (not the
+  // colliding `scaleUtil.ordinal()`) is the correct counterpart: its `invert()` has the same
+  // `_isRangePoints`-aware branch this file's own `invert()` below was ported from (a fuller
+  // implementation than `scaleUtil`'s embedded, simpler `ordinal().invert()`).
+  const core = ordinalScaleUtil.ordinal()
+  core.domain(domain)
+  core.rangePoints(interval, padding)
 
-  const range: number[] = []
-  for (let i = 0; i < domain.length; i++) {
-    range[i] = i === 0 ? interval[0] + padding / 2 + unit / 2 : range[i - 1] + unit
-  }
+  const scale = ((value: string | number): number | null => core(value)) as OrdinalScale
 
-  const scale = ((value: string | number): number | null => {
-    if (typeof value === 'string') {
-      const index = domain.indexOf(value)
-      return index > -1 ? range[index] : null
-    }
+  scale.domain = core.domain() as (string | number)[]
+  scale.range = core.range()
+  scale.rangeBand = () => core.rangeBand()
 
-    return range[value] ?? null
-  }) as OrdinalScale
-
-  scale.domain = domain
-  scale.range = range
-  scale.rangeBand = () => unit
-
-  scale.invert = (x: number): number => {
-    const min = Math.min(range[0], range[1]) - unit / 2
-    const clampedX = x < min ? min : x
-    return Math.floor(Math.abs(clampedX - min) / unit)
-  }
+  scale.invert = (x: number): number => core.invert(x)
 
   return scale
 }

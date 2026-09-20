@@ -1,13 +1,77 @@
 import { computed, type ComputedRef, type Ref } from 'vue'
+import type { ColorResolver } from './useColorResolver'
 import type { ThemeName } from '../types'
 
 /**
- * Flat theme token objects, ported from jui-chart's `src/theme/classic.js` and `dark.js`.
+ * Flat theme token objects, ported from jui-chart's `src/theme/classic.js`, `dark.js`,
+ * `gradient.js` and `pattern.js` (all 4 upstream theme presets - see PORT_STATUS.md's
+ * "theme/gradient.js" / "theme/pattern.js" entries for the completeness-audit writeup).
  * Trimmed to the tokens actually used by the MVP's brush types (line/area/bar/column/pie/donut)
  * plus later-ported types (scatter/bubble/rangearea/rangebar/candlestick/ratebar/bargauge/
  * fullgauge/pin/selectbox/heatmap/heatmapscatter/pyramid/arcequalizer/timeline) and widgets
  * (title/tooltip) - the originals also carry tokens for topology, treemap, map, waterfall and
  * other brush types that are out of scope for this port (see README "What's out of scope").
+ *
+ * **Gradient/pattern rendering pipeline (`gradientTheme`/`patternTheme` `colors` + a handful of
+ * `*BackgroundColor` tokens) - IMPLEMENTED**: `gradient.js`'s `"linear(top) #c1,<stop> #c2"`
+ * strings and `pattern.js`'s `"pattern-jennifer-NN"` strings are BOTH confirmed-real, actively-
+ * rendered formats in upstream jui-chart - NOT decorative metadata. Traced in the compiled
+ * `dist/jui-chart.js` (the parser/registry code lives in the `jui-graphics`/`jui-core` dependency
+ * jui-chart bundles, not in jui-chart's own `src/`, cross-checked against jui-core's own
+ * unminified `src/util/color.js`): `chart.color(index)`/`chart.theme(key)` (for any key whose
+ * name contains `"Color"`) resolve through an internal `createColor()` that (a) for a
+ * `"linear(...)"`/`"radial(...)"` string, calls `ColorUtil.parse()` (`parseGradient`/`parseAttr`/
+ * `parseStop`) and builds a real SVG `<linearGradient>`/`<radialGradient>` def via
+ * `createGradient()`, or (b) for a `"pattern-*"` string, calls `createPattern()`, which loads the
+ * matching def out of `chart.pattern.<name>` (i.e. `pattern/classic.js`'s 12 `<pattern>`/base64-
+ * PNG-fill defs) and injects it - either way returning a `url(#...)` reference as the resolved
+ * fill.
+ *
+ * This port now implements the full pipeline: `colorParser.ts` (`parseGradient`/`parseAttr`/
+ * `parseStop`, byte-faithful including a confirmed-real upstream bug in the stop-offset gap-fill
+ * logic - see that file's own doc comment), `patternClassic.ts` (the 12 ported `pattern/
+ * classic.js` defs), and `useColorResolver.ts` (the `createColor()`/`createGradient()`/
+ * `createPattern()` equivalent: one instance per chart, owning a hash-dedup cache + an
+ * auto-incrementing id counter + a reactive `defs` list). `color(index)` and `theme(key)` below
+ * both route through a resolver's `resolve()` when one is supplied as this function's optional
+ * second argument - see `ChartBase.vue` for how each top-level chart-type component (BarChart/
+ * LineChart/AreaChart/etc.) creates one `useColorResolver()` per instance, hands it down to its
+ * own `useTheme()` call AND to `<ChartBase :color-resolver>` as a prop, and how `ChartBase.vue`
+ * renders that resolver's registered defs into a real `<defs>` element via `SvgDefNode.vue`. When
+ * no resolver is given (e.g. `useTheme(name)` called directly in a unit test, or by a component
+ * not yet wired into this pipeline), `color()`/`theme()` gracefully fall back to returning the raw
+ * token string unchanged - the same pass-through-to-an-invalid-SVG-attribute behavior this port
+ * had before this feature existed, not an error.
+ *
+ * **Two deliberate, documented deviations from upstream's exact dispatch behavior** - see
+ * `useColorResolver.ts`'s own header doc comment for the full writeup: (1) pattern lookup skips
+ * reproducing a confirmed-real upstream prefix-registry-lookup bug (`"pattern-jennifer-NN"`'s
+ * `"jennifer"` prefix never actually matches the registered `"chart.pattern.classic"` module name
+ * upstream) and instead indexes directly into the single ported pattern source by the trailing
+ * method key; (2) gradient/pattern id numbering uses a real per-chart auto-incrementing counter
+ * (`gradient-0`, `gradient-1`, ...) rather than reproducing upstream's own `_index` bug (a
+ * chart-creation-order constant, never incremented per color, which would make every distinct
+ * gradient in one real upstream chart collide on the same SVG `id`).
+ *
+ * **Still out of scope for this pass** (a deliberate, documented follow-up, not a silent gap):
+ * only `ChartBase.vue`-composing chart types (Bar/Line/Area/Bubble/Candlestick/Column3D/Line3D/
+ * Focus/Heatmap/EqualizerChart(SVG)/SelectBox/Pin/Scatter/RateBar/RangeBar/HeatmapScatter/
+ * RangeArea) are wired to a resolver in this pass. Components with their own standalone `<svg>`
+ * root (PieChart/DonutChart/TreemapChart/FlameChart/TimelineChart/PyramidChart/ArcEqualizerChart/
+ * etc.) still call `useTheme(name)` with no resolver, so `theme="gradient"`/`theme="pattern"` on
+ * those still renders the pre-existing raw-string/invalid-fill/black behavior - each would need
+ * its own `useColorResolver()` + its own `<defs>` in its own `<svg>` root, following the exact
+ * same pattern `ChartBase.vue` now uses. Canvas-backed brushes (`ChartCanvasBase.vue`-composing
+ * components: `EqualizerColumnChart.vue` etc.) are out of scope entirely, not just deferred: a
+ * canvas `fillStyle` cannot consume an SVG `url(#id)` reference at all - that would need an
+ * entirely separate `CanvasGradient`-based implementation, unrelated to this SVG-defs pipeline.
+ * See PORT_STATUS.md for the full writeup.
+ *
+ * `icon/classic.js` (`chart.icon.classic`) is explicitly OUT of this scope entirely, not merely
+ * deferred: it is a wholly separate icon-glyph-font system (`chart.icon(key)`, driven by a
+ * `_options.icon.type` chart option), confirmed via source to have zero references from either
+ * `theme.js`/`gradient.js`/`pattern.js` or the theme-resolution code path above - it happens to
+ * live in a sibling `icon/` directory next to `theme/`/`pattern/` but is unrelated to theming.
  */
 export interface ChartTheme {
   fontFamily: string
@@ -398,6 +462,65 @@ const darkColors = [
   '#fc6d65', '#f199ff', '#c8f21d', '#16a6e5', '#00ba60', '#91f2a1', '#fc9765', '#f21d4f',
 ]
 
+/**
+ * Ported from `theme/gradient.js`'s `themeColors` verbatim - 19 entries (one fewer than
+ * `classicColors`'/`darkColors`' 20/16, and `patternColors`' 12), each a
+ * `"linear(top) #c1,<stop> #c2"` gradient-string, jui-chart's own mini gradient-color DSL (see
+ * `ColorUtil.parseGradient`/`parseAttr`/`parseStop` in the upstream `jui-graphics`/`jui-core`
+ * dependency the compiled `dist/jui-chart.js` bundles - confirmed a REAL, actively-parsed format,
+ * not decorative metadata: `chart.color(index)` -> `createColor()` -> `ColorUtil.parse()` ->
+ * `createGradient()` builds an actual SVG `<linearGradient>` def and returns `url(#gradient-N)`
+ * as the resolved fill). See this file's own header doc comment ("Theme scope boundary" section
+ * below `ChartTheme`) for why this port still stores these as opaque strings rather than also
+ * porting that parser + defs-registry pipeline.
+ */
+const gradientColors = [
+  'linear(top) #9694e0,0.9 #7977C2',
+  'linear(top) #a1d6fc,0.9 #7BBAE7',
+  'linear(top) #ffd556,0.9 #ffc000',
+  'linear(top) #ff9d46,0.9 #ff7800',
+  'linear(top) #9cd37a,0.9 #87bb66',
+  'linear(top) #3bb9b2,0.9 #1da8a0',
+  'linear(top) #b3b3b3,0.9 #929292',
+  'linear(top) #67717f,0.9 #555d69',
+  'linear(top) #16b5f6,0.9 #0298d5',
+  'linear(top) #ff686c,0.9 #fa5559',
+  'linear(top) #fbbbb1,0.9 #f5a397',
+  'linear(top) #3aedcf,0.9 #06d9b6',
+  'linear(top) #d8c2e7,0.9 #c6a9d9',
+  'linear(top) #8a87ff,0.9 #6e6afc',
+  'linear(top) #eef18c,0.9 #e3e768',
+  'linear(top) #ee52a2,0.9 #df328b',
+  'linear(top) #b6e5f4,0.9 #96d7eb',
+  'linear(top) #93aec8,0.9 #839cb5',
+  'linear(top) #b76fef,0.9 #9228e4',
+]
+
+/**
+ * Ported from `theme/pattern.js`'s `themeColors` verbatim - 12 `"pattern-jennifer-NN"` name
+ * strings, one per SVG `<pattern>` def in `pattern/classic.js` (confirmed a REAL, actively-
+ * resolved format upstream: `chart.color(index)` -> `createColor()` -> `createPattern()` looks
+ * the name up as `jui.include("chart.pattern." + name)`, converts that JSON pattern def to a real
+ * SVG element, injects it into the chart's `<defs>`, and returns `url(#pattern-jennifer-NN)` as
+ * the resolved fill - NOT decorative). See this file's "Theme scope boundary" doc comment below
+ * for why this port stores these as opaque strings without also porting `pattern/classic.js`'s
+ * SVG defs + the defs-registry/lookup pipeline that would make them actually render as patterns.
+ */
+const patternColors = [
+  'pattern-jennifer-01',
+  'pattern-jennifer-02',
+  'pattern-jennifer-03',
+  'pattern-jennifer-04',
+  'pattern-jennifer-05',
+  'pattern-jennifer-06',
+  'pattern-jennifer-07',
+  'pattern-jennifer-08',
+  'pattern-jennifer-09',
+  'pattern-jennifer-10',
+  'pattern-jennifer-11',
+  'pattern-jennifer-12',
+]
+
 export const classicTheme: ChartTheme = {
   fontFamily: 'arial,Tahoma,verdana',
   backgroundColor: '#fff',
@@ -776,31 +899,142 @@ export const darkTheme: ChartTheme = {
   topologyTooltipFontColor: '#c5c5c5',
 }
 
+/**
+ * Ported from `theme/gradient.js`. Upstream declares `extend: null` (like every theme file, it is
+ * its own full flat object, never literally built by extending `classic.js`) - this port still
+ * builds it as `{...classicTheme, ...overrides}` purely as an internal DRY technique, matching
+ * `darkTheme`'s own established convention; every value below (including the ones NOT re-listed
+ * here because they equal `classicTheme`'s) was individually hand-traced against `gradient.js`,
+ * not inferred from the spread.
+ *
+ * Two source quirks, preserved deliberately rather than silently "fixed":
+ * - `gradient.js` omits `tooltipPointFontSize` entirely (present in `classic`/`dark`/`pattern`).
+ *   In the original engine this makes `theme("tooltipPointFontSize")` resolve to `undefined` when
+ *   this theme is active. `ChartTheme` requires it as a non-optional `number`, so this port
+ *   inherits `classicTheme`'s `11` via the spread instead - a forced deviation from that literal
+ *   `undefined`, not a faithful reproduction of it.
+ * - `gradient.js` omits all 4 `selectBox*` tokens entirely (only `classic.js`/`dark.js` define
+ *   them - `selectbox.js` postdates `gradient.js`/`pattern.js`, or they were simply never
+ *   updated). Same treatment: inherited from `classicTheme` for the same non-optional-field reason.
+ */
+export const gradientTheme: ChartTheme = {
+  ...classicTheme,
+  colors: gradientColors,
+
+  gridXFontColor: '#666',
+  gridYFontColor: '#666',
+  gridXAxisBorderColor: '#efefef',
+  gridYAxisBorderColor: '#efefef',
+  gridBorderColor: '#efefef',
+
+  pieBorderColor: '#fff',
+
+  areaBackgroundOpacity: 0.4,
+
+  scatterBorderWidth: 2,
+
+  /** `candlestick.js`'s "else"/bullish fill - a degenerate single-stop gradient string (no second
+   * color), ported verbatim rather than "corrected" to a plain `"#fff"`. */
+  candlestickBackgroundColor: 'linear(top) #fff',
+  /** `candlestick.js`'s `open > close`/bearish fill - same single-stop-gradient quirk. */
+  candlestickInvertBackgroundColor: 'linear(top) #ff0000',
+
+  legendFontColor: '#666',
+
+  tooltipBackgroundOpacity: 1,
+  tooltipLineWidth: 1,
+
+  timelineTitleFontSize: 11,
+  timelineColumnBackgroundColor: 'linear(top) #f9f9f9,1 #e9e9e9',
+  timelineEvenRowBackgroundColor: '#fafafa',
+  timelineOddRowBackgroundColor: '#f1f0f3',
+  timelineVerticalLineColor: '#c9c9c9',
+  timelineHorizontalLineColor: '#d2d2d2',
+
+  flameTextFontSize: 12,
+}
+
+/**
+ * Ported from `theme/pattern.js`. Same `{...classicTheme, ...overrides}` DRY convention as
+ * `gradientTheme`/`darkTheme` above (upstream is its own full flat object, `extend: null`).
+ *
+ * One source quirk shared with `gradient.js`, preserved deliberately: `pattern.js` also omits all
+ * 4 `selectBox*` tokens entirely - inherited from `classicTheme` for the same non-optional-field
+ * reason documented on `gradientTheme` above. Unlike `gradient.js`, `pattern.js` does NOT omit
+ * `tooltipPointFontSize` (it defines it explicitly as `11`, the same value `classicTheme` already
+ * has, so no override entry is needed either way).
+ */
+export const patternTheme: ChartTheme = {
+  ...classicTheme,
+  colors: patternColors,
+
+  gridXAxisBorderColor: '#ebebeb',
+  gridYAxisBorderColor: '#ebebeb',
+
+  barBorderColor: '#000',
+  barBorderWidth: 1,
+  barBorderOpacity: 1,
+  barBorderRadius: 5,
+
+  pieBorderColor: '#fff',
+
+  tooltipLineWidth: 1,
+
+  timelineTitleFontSize: 11,
+  timelineColumnBackgroundColor: 'linear(top) #f9f9f9,1 #e9e9e9',
+  timelineEvenRowBackgroundColor: '#fafafa',
+  timelineOddRowBackgroundColor: '#f1f0f3',
+  timelineVerticalLineColor: '#c9c9c9',
+  timelineHorizontalLineColor: '#d2d2d2',
+
+  flameTextFontSize: 12,
+}
+
 const themes: Record<ThemeName, ChartTheme> = {
   classic: classicTheme,
   dark: darkTheme,
+  gradient: gradientTheme,
+  pattern: patternTheme,
 }
 
 export interface UseThemeResult {
   tokens: ComputedRef<ChartTheme>
-  /** `chart.theme(key)` equivalent: reads a single token off the active theme. */
+  /** `chart.theme(key)` equivalent: reads a single token off the active theme. When a
+   *  `resolver` was passed to `useTheme()` and `key`'s name contains `"Color"` (matching
+   *  upstream's own `chart.theme()` - `key.indexOf("Color") > -1 && _theme[key] != null` -
+   *  `dist/jui-chart.js:12337-12341`), the value is routed through `resolver.resolve()` first. */
   theme: <K extends keyof ChartTheme>(key: K) => ChartTheme[K]
   colors: ComputedRef<string[]>
-  /** `chart.color(index)` equivalent: cycles through the theme's color list. */
+  /** `chart.color(index)` equivalent: cycles through the theme's color list. Routed through
+   *  `resolver.resolve()` when a `resolver` was passed to `useTheme()`. */
   color: (index: number) => string
 }
 
-export function useTheme(name: Ref<ThemeName>): UseThemeResult {
+/**
+ * @param resolver Optional per-chart-instance `useColorResolver()` (see that file's doc comment)
+ *   - when given, `color()`/`theme()` route `"linear(...)"`/`"pattern-*"` theme token strings
+ *     through it, turning them into real registered SVG defs + a `url(#id)` reference instead of
+ *     returning them raw. Omit it (as every call site outside `ChartBase.vue`'s wired component
+ *     tree currently does - see this file's header doc comment's "still out of scope" section) to
+ *     get the pre-existing raw-passthrough behavior; that's also what a bare `useTheme(name)` call
+ *     in a unit test gets, deliberately, rather than needing to fake a resolver.
+ */
+export function useTheme(name: Ref<ThemeName>, resolver?: ColorResolver): UseThemeResult {
   const tokens = computed(() => themes[name.value] ?? classicTheme)
   const colors = computed(() => tokens.value.colors)
 
   function theme<K extends keyof ChartTheme>(key: K): ChartTheme[K] {
-    return tokens.value[key]
+    const raw = tokens.value[key]
+    if (resolver && typeof key === 'string' && key.indexOf('Color') > -1 && raw != null) {
+      return resolver.resolve(raw as unknown as string) as ChartTheme[K]
+    }
+    return raw
   }
 
   function color(index: number): string {
     const list = colors.value
-    return list[index % list.length]
+    const raw = list[index % list.length]
+    return resolver ? resolver.resolve(raw) : raw
   }
 
   return { tokens, theme, colors, color }

@@ -7,7 +7,9 @@
 // Not used by PieChart/DonutChart: those aren't axis-based (see usePie.ts).
 import { computed, toRef } from 'vue'
 import { useChartLayout } from '../composables/useChartLayout'
+import { useColorResolver, type ColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
+import SvgDefNode from './SvgDefNode.vue'
 import type { AxisConfig, ChartPadding, DataRow, ThemeName } from '../types'
 
 const props = withDefaults(
@@ -21,6 +23,16 @@ const props = withDefaults(
     padding?: Partial<ChartPadding>
     /** Draw the light horizontal/vertical grid lines behind the plot. */
     showGrid?: boolean
+    /** The chart-type component's (BarChart/LineChart/AreaChart/etc.) own `useColorResolver()`
+     *  instance, shared so this file's own `theme()`/`color()` calls AND the wrapping component's
+     *  own series-mark colors resolve through the SAME hash-dedup cache/id counter and land in
+     *  the SAME rendered `<defs>` below - see `useColorResolver.ts`'s header doc comment for why
+     *  this can't instead be done via `provide`/`inject` (the wrapping component is this file's
+     *  PARENT in the component tree, not its descendant, so `inject()` from the wrapping
+     *  component's own `useTheme()` call could never see a `provide()` made in here). Omitted
+     *  (e.g. a bare `<ChartBase>` usage, or a test that mounts this file directly), this creates
+     *  its own fallback instance so `<defs>` still renders correctly standalone. */
+    colorResolver?: ColorResolver
   }>(),
   {
     width: 600,
@@ -28,11 +40,19 @@ const props = withDefaults(
     theme: 'classic',
     padding: undefined,
     showGrid: true,
+    colorResolver: undefined,
   },
 )
 
 const themeName = toRef(props, 'theme')
-const { theme, color } = useTheme(themeName)
+const ownColorResolver = useColorResolver()
+// Captured once at setup time (matching how `themeName` is the only piece of this file's own
+// `useTheme()` call that's kept reactive via `toRef` - `props.colorResolver` itself is expected
+// to be a stable per-chart-instance object for the component's whole lifetime, same as every
+// other prop this file forwards to `useTheme()`/`useChartLayout()` unchanged).
+const activeResolver = props.colorResolver ?? ownColorResolver
+const defs = computed(() => activeResolver.defs.value)
+const { theme, color } = useTheme(themeName, activeResolver)
 
 const { area, axisX, axisY } = useChartLayout(
   toRef(props, 'data'),
@@ -76,6 +96,16 @@ defineExpose({ area, axisX, axisY, theme, color })
 
 <template>
   <svg :width="props.width" :height="props.height" :viewBox="`0 0 ${props.width} ${props.height}`" class="jui-chart-vue-root">
+    <!-- Gradient/pattern SVG defs registered by this chart's `useColorResolver()` (shared with the
+         wrapping chart-type component - see the `colorResolver` prop's doc comment above), so
+         `theme="gradient"`/`theme="pattern"` colors resolved anywhere in this chart (this file's
+         own theme()/color() calls, or the wrapping component's, via the SAME resolver instance)
+         render as real gradients/patterns instead of an invalid raw-string fill. Empty (renders
+         nothing) for classic/dark themes, whose tokens never resolve to a def. -->
+    <defs>
+      <SvgDefNode v-for="entry in defs" :key="entry.id" :node="entry.descriptor" />
+    </defs>
+
     <rect :x="0" :y="0" :width="props.width" :height="props.height" :fill="theme('backgroundColor')" />
 
     <!-- Grid lines. X and Y are controlled independently - see showXGridLines/showYGridLines. -->

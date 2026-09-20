@@ -13,6 +13,7 @@ import { useChartLayout } from '../composables/useChartLayout'
 import { toSeriesScale } from '../composables/useSeries'
 import { createOrdinalScale } from '../composables/useScale'
 import { computePolygon3dProjection } from '../composables/usePolygon3d'
+import { useColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
 import { buildLine3dDraws, sortLine3dDraws } from '../composables/useLine3d'
 import type { AxisConfig, ChartPadding, DataRow, ThemeName } from '../types'
@@ -63,7 +64,8 @@ const dataRef = toRef(props, 'data')
 const { axisX, axisY, area } = useChartLayout(dataRef, toRef(props, 'axisX'), toRef(props, 'axisY'), toRef(props, 'width'), toRef(props, 'height'), toRef(props, 'padding'))
 
 const themeName = toRef(props, 'theme')
-const { theme, color: themeColor } = useTheme(themeName)
+const colorResolver = useColorResolver()
+const { theme, color: themeColor } = useTheme(themeName, colorResolver)
 
 function pickColor(i: number): string {
   return props.colors?.[i] ?? themeColor(i)
@@ -102,7 +104,7 @@ const draws = computed(() => {
 </script>
 
 <template>
-  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid">
+  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid" :color-resolver="colorResolver">
     <polygon
       v-for="(seg, i) in draws"
       :key="i"
@@ -114,7 +116,7 @@ const draws = computed(() => {
     />
 
     <template #overlay>
-      <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+      <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
     </template>
   </ChartBase>
 </template>

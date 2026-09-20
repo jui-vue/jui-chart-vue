@@ -272,6 +272,7 @@ import {
   toSeriesScale,
   useStackedSeries,
 } from '../composables/useSeries'
+import { useColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
 import ChartBase from './ChartBase.vue'
 import ChartTitle from './ChartTitle.vue'
@@ -432,7 +433,12 @@ const { axisX, axisY, area } = useChartLayout(
 )
 
 const themeName = toRef(props, 'theme')
-const { theme, color: themeColor } = useTheme(themeName)
+// One `useColorResolver()` per `<BarChart>` instance, shared with `<ChartBase>` below (as a
+// prop - see `ChartBase.vue`'s `colorResolver` prop doc comment for why this can't instead be
+// done via provide/inject) so `theme="gradient"`/`theme="pattern"` resolve to real SVG defs
+// rendered in the SAME `<defs>` this chart's bars reference.
+const colorResolver = useColorResolver()
+const { theme, color: themeColor } = useTheme(themeName, colorResolver)
 
 function pickColor(i: number): string {
   return props.colors?.[i] ?? themeColor(i)
@@ -943,7 +949,7 @@ function stackRowTooltipVisible(row: StackRow): boolean {
 </script>
 
 <template>
-  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid">
+  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid" :color-resolver="colorResolver">
     <g v-if="!props.stacked">
       <path
         v-for="(bar, i) in bars"
@@ -1033,7 +1039,7 @@ function stackRowTooltipVisible(row: StackRow): boolean {
     </g>
 
     <template #overlay>
-      <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+      <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
       <g v-if="props.showTooltip && hover && !suppressHover">
         <ChartTooltip
           visible

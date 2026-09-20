@@ -172,6 +172,7 @@ import { isDegenerateDragRect, normalizeDragRect, pointsInDragRect } from '../co
 import { clamp, invertAxisValue, nearestIndexByPosition, toSvgPoint } from '../composables/useHoverGuide'
 import { canScroll, clampThumbGap, computeScrollStart, computeThumbGapFromStart, computeThumbSize } from '../composables/useScrollWindow'
 import { curvePoints, roundedRectPath, toSeriesScale, useSeries, useStackedSeries } from '../composables/useSeries'
+import { useColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
 import { clampZoomWindow, computeDragZoomWindow, type ZoomWindow } from '../composables/useZoomWindow'
 import {
@@ -426,7 +427,8 @@ const { area, axisX, axisY } = useChartLayout(
 )
 
 const themeName = toRef(props, 'theme')
-const { theme, color: themeColor } = useTheme(themeName)
+const colorResolver = useColorResolver()
+const { theme, color: themeColor } = useTheme(themeName, colorResolver)
 
 function pickColor(i: number): string {
   return props.colors?.[i] ?? themeColor(i)
@@ -1062,7 +1064,7 @@ const crosshairYValue = computed<string | number | null>(() => {
 </script>
 
 <template>
-  <ChartBase :data="windowedData" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid">
+  <ChartBase :data="windowedData" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid" :color-resolver="colorResolver">
     <g>
       <!-- guideline/crosshair/zoomable hit-rect: placed BELOW the lines/points below it (z-order
            lowest), so hovering exactly on an existing line/point still triggers that element's own
@@ -1315,7 +1317,7 @@ const crosshairYValue = computed<string | number | null>(() => {
     </g>
 
     <template #overlay>
-      <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+      <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
       <g v-if="props.showTooltip && hover">
         <ChartTooltip
           visible

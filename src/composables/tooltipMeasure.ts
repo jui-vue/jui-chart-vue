@@ -61,6 +61,33 @@ export function measureTextWidth(text: string, fontSize: number): number {
   }
 }
 
+/**
+ * Real pixel width AND height of `text` at `fontSize`, via the same detached `<text>` element's
+ * `getBBox()`. Used by `ChartTitle.vue`, ported from `chart.widget.title`'s `TitleWidget.draw()`
+ * (`var obj = chart.svg.getTextSize(widget.text)`), which itself is backed by
+ * `juijs-graph/src/util/svg.js`'s `getTextSize()` - a one-shot offscreen `<svg><text>` create/
+ * measure/destroy cycle reading `getBoundingClientRect()`. This reuses `measureTextWidth`'s own
+ * module-level reused element (see that function's + this module's header comment on the
+ * "single element reused across calls" divergence) but reads `getBBox()` instead of
+ * `getComputedTextLength()`/`getBoundingClientRect()` - `getBBox()` is the standard SVG method for
+ * "both dimensions of this element's own geometry" and needs no `document.body`-relative rect math.
+ * Not unit-testable under vitest's jsdom (no real font metrics/layout - same reason
+ * `measureTextWidth` isn't unit-tested; see `useChartTitle.ts`'s rotation math, which is unit
+ * tested by taking a pre-measured width/height as plain numbers instead). */
+export function measureTextSize(text: string, fontSize: number): { width: number; height: number } {
+  if (!text) return { width: 0, height: 0 }
+  const el = getMeasureText()
+  if (!el) return { width: 0, height: 0 }
+  el.setAttribute('font-size', String(fontSize))
+  el.textContent = text
+  try {
+    const box = el.getBBox()
+    return { width: box.width, height: box.height }
+  } catch {
+    return { width: 0, height: 0 }
+  }
+}
+
 const MIN_BOX_WIDTH = 36
 
 /**

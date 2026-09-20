@@ -3622,6 +3622,29 @@ are clean after each. See each item's own entry below for its full write-up.
       "physics vs. practicality" concern in the simple direction: no physics simulation exists to
       make a scope call about at all.
 
+      **Follow-up (user-directed): `TopologyChart.vue`'s `sort` dispatch, and a real extension hook
+      found on re-read**. Initially ported as a ternary (`props.sort === 'random' ? ... : ...`),
+      then changed to a `Record<'linear'|'random', TopologyLayoutFn>` lookup for consistency with
+      this project's other `jui.include(...)`-registry replacements (jui-graph-ts's
+      `registerAxis`/`registerBrush`/`registerGridDraw2D` etc.) - the `Record` form makes TS enforce
+      every key of the union is present, so a future third built-in strategy is a compile error
+      here instead of silently falling through a ternary's `else`. A closer re-read of
+      `topologytable.js`'s `drawBefore()` while investigating this found a THIRD, previously-
+      unnoticed layer: `jui.include("chart.topology.sort."+this.grid.sort)`, and if THAT isn't a
+      function, a second fallback `jui.include(this.grid.sort)` - i.e. source lets a caller
+      `jui.use()` an arbitrary custom sort module and reference it by name, entirely outside the
+      `"linear"`/`"random"` pair. This port has no runtime module registry to look a string up in
+      (Phase 0 principle) - the chosen equivalent is widening the `sort` prop's type to
+      `'linear' | 'random' | TopologyLayoutFn` (`useTopology.ts`'s new exported type, matching
+      `layoutTopologyRandom`/`layoutTopologyLinear`'s own signature) so a caller passes the function
+      itself, achieving the same extensibility without a registry. `resolveTopologySort()` checks
+      `typeof sort === 'function'` first, falling back to the `Record` lookup otherwise. Verified in
+      `TopologyChart.spec.ts` (new, 3 tests): the `Record` still dispatches `'linear'`/`'random'` to
+      the correct function (X-coordinate-only assertion for linear, since its Y is intentionally
+      non-deterministic - see the quirk above; exact hand-traced position for random via a stubbed
+      constant `Math.random`), and a custom function bypasses both built-ins entirely. 732/732 tests
+      total (was 729), `build:lib`/`build` clean.
+
       **Edge geometry, confirmed from `getDistanceXY()`/`setDataEdges()`, hand-traced (a clean-
       integer 2-node case, a self-loop-skip case, a differing-node-scale case) in
       `useTopology.spec.ts`**: each line runs from just outside the SOURCE node's own circle to
@@ -6898,6 +6921,528 @@ as "checked, no confirmed match, kept as a hand-port" rather than guessing eithe
       section of this file for `kinetic.js`/`hidpi.js`/`cardinal-spline-js`/`getCurvePoints` writeups)
       rather than needing a retroactive pass.
 
+## Phase G — Migration to jui-graph-ts
+
+`jui-graph-ts` (`/home/search5/cl/jui-graph-ts`) is a completed, from-scratch TypeScript port of
+`juijs-graph` itself (real ES classes/functions, one file per original source file, 934/934 tests
+passing across its own Phases A-E) - the SAME engine jui-chart-vue's own composables have been
+independently hand-porting pieces of (jui-chart depends on juijs-graph at runtime; this project
+never took juijs-graph as a dependency, so every overlapping piece here was reimplemented from
+scratch instead). Per the two projects' agreed architecture, jui-chart-vue should depend on
+jui-graph-ts at runtime for whichever pieces genuinely overlap, rather than maintaining two
+parallel hand-ports of the same upstream algorithm forever. This section is planning only - it
+maps every jui-chart-vue composable/utility to its real jui-graph-ts counterpart (by exact export
+name, checked against `jui-graph-ts/src/index.ts`, not guessed from filenames), rates each as a
+mechanical swap or an adapter-needed redesign, batches them in a realistic order, and flags every
+place a migration could change a hand-traced `.spec.ts` expectation. **No migration code is written
+in this section or elsewhere as part of this task.**
+
+Both files' own PORT_STATUS.md writeups already cross-checked several of these pairs bidirectionally
+while each project was being built (jui-graph-ts's authors read this file's relevant composables as
+part of their own Phase A/D evidence trail, and this project's Phase F read `node_modules/juijs-graph`
+directly) - those cross-checks are cited below wherever they exist, since they're stronger evidence
+than a fresh comparison.
+
+### Batch 1 — utility layer (mechanical swaps, do first)
+
+Plain-function-in/plain-function-out modules. The jui-graph-ts side has no instance state, so the
+composable's own Vue-facing signature doesn't need to change at all - only the function bodies get
+replaced by thin wrappers (or direct re-exports) around the jui-graph-ts import.
+
+- [x] `mathUtil.ts` → `jui-graph-ts`'s `mathUtil` namespace (`src/util/math.ts`). Near-perfect 1:1
+      by name AND signature: `getFixed`, `fixed`, `nice`, `div`, `radian`, `rotate`, `scaleValue` all
+      exist in `mathUtil` with matching parameter shapes (`mathUtil.rotate(x, y, radian)` returns the
+      same `{x, y}`-shaped point as this file's `rotate`). Safest, highest-value single swap in the
+      whole plan - `useScale.ts`, `useAxis.ts`, `useActive.ts`, `usePie.ts`, `useArcEqualizer.ts`,
+      `useBubble.ts`, `usePolygon3d.ts`, `useDot3d.ts` all import from this file, so this one swap
+      cascades correctness-wise (but each downstream file's own import line still needs updating).
+      **DONE**: `getFixed`/`fixed`/`div`/`radian`/`rotate`/`scaleValue` now thin call-throughs to
+      `jgMathUtil.*` - confirmed byte-identical, 650/650 existing tests pass unmodified.
+      **`nice()` was deliberately kept LOCAL, not migrated** - this bullet's own predicted bug check
+      turned out to be a real, confirmed positive: `jgMathUtil.nice(0, 97, 5, true)` genuinely throws
+      `ReferenceError: niceFraction is not defined` (verified by directly invoking it), while this
+      file's own `nice()` does not reproduce that bug and is required by `useScale.spec.ts`'s "rounds
+      to nice 1/2/5/10 spacing when isNice is true" test. Swapping it in would have been a real
+      regression, not a wash - kept as this project's own maintained fix, per this bullet's own
+      guidance. See `mathUtil.ts`'s updated header/`nice()` doc comments for the full writeup.
+- [x] `useScale.ts`'s `createLinearScale`/`createOrdinalScale` → `linearScaleUtil.linear()` /
+      `ordinalScaleUtil.ordinal()` (`src/util/scale/linear.ts` / `src/util/scale/ordinal.ts`) -
+      **not** `scaleUtil` (`src/util/scale.ts`)'s embedded `linear()`/`ordinal()`, despite `useScale.ts`'s
+      own doc comment saying "ported from `util/scale.js`". jui-graph-ts's own `util/scale.ts` header
+      comment resolves this precisely: `util/scale.js`'s embedded `ordinal()` has a SIMPLER `invert()`
+      (no `rangePoints`/`_isRangePoints` branch) than the standalone `util/scale/ordinal.js` module;
+      `useScale.ts`'s `createOrdinalScale.invert()` matches the FULLER, `_isRangePoints`-aware version
+      - i.e. the standalone `ordinalScaleUtil` module, confirmed by jui-graph-ts's own cross-check
+      against this exact file. `linearScaleUtil.linear()`'s header comment also explicitly
+      cross-checks against `createLinearScale` (hand-traced/verified in this project's own Phase F
+      against `util/scale.js` lines 490-684) and notes this project's `reverse: false`-only scope.
+      Migration approach: builder-style API difference - jui-graph-ts's `linear()`/`ordinal()` use
+      `.domain(values)`/`.range(values)` setter calls (original `util.scale` style) where this file's
+      `createLinearScale(domain, range, clamp)`/`createOrdinalScale(domain, interval, padding)` take
+      everything as constructor args - still mechanical (a thin adapter function that calls the
+      jui-graph-ts factory then immediately calls `.domain()`/`.range()`), not a redesign.
+      **Test-risk: low** - both sides already cross-verified byte-identical `ticks()`/`invert()`
+      logic; the only difference is call shape, not output.
+      **DONE**, with one correction this bullet's own "test-risk: low" call missed: `createLinearScale`'s
+      core interpolation/`min()`/`max()`/`invert()`/`clamp` now delegate to `linearScaleUtil.linear()`
+      via a thin adapter (`.domain()`/`.range()`/`.clamp()` builder calls, `clamp` tracked locally
+      since jui-graph-ts's `.clamp(isClamp)` is write-only). **`ticks()` was NOT delegated to
+      `core.ticks()`** - jui-graph-ts's `linear().ticks()` calls ITS OWN internal `mathUtil.nice()`
+      (imported inside `util/scale/linear.ts`, not swappable from outside), which inherits the exact
+      `isNice: true` throwing bug the `mathUtil.ts` bullet above flagged - confirmed by testing
+      (`linearScaleUtil.linear().domain([0,97]).range([0,100]).ticks(5, true)` throws
+      `ReferenceError: niceFraction is not defined`; jui-graph-ts's own `linear.spec.ts` tellingly
+      never exercises `isNice: true` either). `ticks()` therefore stays a local implementation (using
+      the local, non-throwing `nice()` + the now-delegated `fixed()`), unchanged in logic from before
+      this migration. `createOrdinalScale` fully delegates to `ordinalScaleUtil.ordinal().domain()
+      .rangePoints()`. 650/650 existing tests (including the `isNice: true` case) pass unmodified;
+      `npm run test`/`build:lib`/`build` all green.
+- [x] `useColorScale.ts` → **evaluate, likely do NOT migrate the core interpolation** - `colorUtil`
+      (`src/util/color.ts`) has a real, ported `scale()` (`.domain(start, end)` + `.ticks(n)`) and
+      `rgb()`/`format()`, but jui-graph-ts's own header comment for `util/color.ts` explicitly notes
+      this file (`useColorScale.ts`) only *audited* it (Phase F) and confirmed its own
+      `createColorScale`/`interpolateColor`/`hexToRgb`/`rgbToHex` are independently invented, NOT
+      ported from `juijs-graph` (grepped the whole engine: no interpolate/gradient/lerp primitive
+      exists anywhere; `colorUtil.scale()`/`map()`/`HSVtoRGB`/`colorHash` are dead code, never called
+      internally by the real engine). The two are also semantically different, not just
+      differently-shaped: `colorUtil.scale()` is 2-stop only (`domain(start, end)`), this file's
+      `createColorScale` supports N-stop gradients (needed for `HeatmapChart.vue`); `colorUtil.scale()`
+      rounds channels via `parseInt(String(...))` (**truncates toward zero**), this file's
+      `interpolateColor`/`rgbToHex` use `Math.round`. Swapping the rounding strategy alone could
+      shift a hex channel by 1 for values with a `.5`+ fractional part - **test-risk: `useColorScale.spec.ts`'s
+      exact hex-string assertions would need re-verification if `colorUtil.rgb()`/`scale()` internals
+      are reused for anything**, so this is churn without benefit unless a future N-stop-with-proper-rounding
+      need arises upstream too. Recommendation: leave `useColorScale.ts` as its own maintained
+      composable; do not force a swap.
+      **CONFIRMED, STAYS AS-IS** - re-read `useColorScale.ts` and `jui-graph-ts/src/util/color.ts`'s
+      `scale()` directly: this bullet's evaluation holds exactly. `createColorScale` is genuinely
+      N-stop (`colors.length - 1` segments) where `colorUtil.scale()` is hard-2-stop
+      (`startColor`/`endColor` closure vars only); `colorUtil.scale()`'s channel rounding is literally
+      `parseInt(String(startColor.r + (endColor.r - startColor.r) * t), 10)` (truncates toward zero)
+      vs. this file's `Math.round` in `rgbToHex`. No migration done - not a wash, a real semantic
+      difference, as this bullet already concluded.
+      **RE-OPENED AND RESOLVED (user-directed re-evaluation)**: the "N-stop vs 2-stop" mismatch was
+      real, but `colorUtil.map()` (chains `scale()` across consecutive stops) was considered as a fix
+      and rejected - `map()` returns a fixed-count discrete color-sample array, not a continuous
+      `(value) => color` function, so using it would mean snapping to the nearest of N precomputed
+      samples (a quality downgrade) rather than exact per-value interpolation.
+      **Final approach**: added a `MultiStopColorScale` class *inside this file* (has-a, not is-a,
+      relationship to jui-graph-ts) that composes `colorUtil.scale()` once per consecutive color-stop
+      pair, owning the domain/segment-selection logic `colorUtil` has no equivalent for. Deliberately
+      NOT promoted into jui-graph-ts itself - considered and rejected, since (1) this feature has no
+      original-engine counterpart at all (see this file's top doc comment - not a port either way),
+      and (2) jui-graph-ts's identity as a byte-faithful, 1:1-file-per-original-source port would be
+      the one thing compromised by hosting an invented class with no source-file counterpart, for a
+      feature only jui-chart-vue currently needs (same "don't generalize speculatively, promote when
+      a second real consumer appears" discipline as the deferred `jui-core-ts` decision). `rgbToHex`/
+      `interpolateColor` removed as dead code (only `createColorScale` called them); `hexToRgb` kept
+      (still used by `useActiveBubble.ts`). Two real deviations from the prior hand-port, both
+      documented in `useColorScale.ts`'s own doc comment and both hand-traced/Node-verified: (1) the
+      `Math.round`→truncation rounding change noted above (~50% of interpolation positions shift by
+      ±1 per channel - confirmed via a 100-sample Node sweep); (2) `colorUtil.scale()`'s `format()`
+      emits UPPERCASE hex (also the original engine's real behavior) - normalized back to lowercase
+      in `MultiStopColorScale.value()` to match this port's established convention.
+      `useColorScale.spec.ts` updated: `rgbToHex`/`interpolateColor`'s describe blocks removed (644
+      tests total, down from 650 - no coverage lost, those blocks tested now-deleted functions
+      directly), `createColorScale`'s 4 fractional-midpoint assertions updated to their exact
+      truncated values (`#808080`→`#7f7f7f`, `#404040`→`#3f3f3f`, `#808000`→`#7f7f00`,
+      `#008080`→`#007f7f`), all Node-recomputed before editing, not guessed. `npm run test`
+      (644/644), `build:lib`, `build` all pass clean. Playwright spot-check on `/heatmap` (the sole
+      `createColorScale` consumer) confirmed real, varied, correctly-lowercased hex fills rendering
+      (e.g. `#e0e6e6`, `#397d4e`), no regressions.
+- [x] `usePolygon3d.ts`'s `darkenColor` → `colorUtil.darken(color, rate)` - **evaluate, likely skip**
+      for the same reason as `useColorScale.ts` above: this file's own doc comment says `darkenColor`
+      was hand-ported from "a web search for 'lighten'/'darken' hex color javascript `c + (c*rate)`"
+      (a generic published snippet), not from `juijs-graph`. `colorUtil.darken()` is a REAL ported
+      `util/color.js` function (`darken(color, rate) = lighten(color, -rate)`), coincidentally similar
+      in spirit but not verified byte-identical in rounding/hex-padding. Low priority; verify
+      hand-traced output before touching `usePolygon3d.spec.ts`'s color assertions if attempted.
+      **MIGRATED** - re-reading `usePolygon3d.ts`'s own current doc comment on `darkenColor` (it
+      already says "Ported from `juijs-graph/src/util/color.js`'s `darken(color, rate) {return
+      this.lighten(color, -rate)}` / `lighten(color, rate)`", not the web-search-snippet framing this
+      bullet's evaluation assumed - that framing appears to have been based on a stale read) and doing
+      the byte-level comparison this bullet asked for before migrating: `colorUtil.lighten()`
+      (`jui-graph-ts/src/util/color.ts`) uses the exact same non-hex-char strip regex
+      (`/[^0-9a-f]/gi`), the exact same per-channel `c + c*rate` formula (`rate = -rate` from
+      `darken()`), the same `Math.round(Math.min(Math.max(0, ...), 255))` clamp, and the same
+      `('00' + x).substr(x.length)` zero-pad this file's hand-port used (`.substring` vs `.substr`,
+      behaviorally identical for this use). Confirmed byte-identical, not just "coincidentally
+      similar" - migrated to a one-line call-through to `colorUtil.darken()`.
+      `usePolygon3d.spec.ts`'s `darkenColor` assertions (exact hex-string values) pass unmodified.
+- [x] `canvasPrimitives.ts` → **do NOT migrate** - jui-graph-ts's `canvasBaseUtil` (`CanvasBase` class,
+      `src/util/canvas/base.ts`) already documents in its own header comment, from a direct
+      cross-check against this exact file, that "none of `canvasPrimitives.ts`'s individual functions
+      are 1:1 named or shaped like this file's methods" and that this file was deliberately
+      hand-written fresh rather than porting `util/canvas/base.js` wholesale (different parameter
+      order: `CanvasBase` methods are instance methods on a class holding `context` as constructor
+      state; `canvasPrimitives.ts`'s functions take `context` as a per-call positional argument -
+      genuinely different shapes, not two versions of the same API). Move to Batch "excluded" list.
+      **CONFIRMED, STAYS AS-IS** - re-read `canvasPrimitives.ts` directly: every exported function
+      (`drawFilledCircle`, `drawStrokedLine`, etc.) takes `context: CanvasRenderingContext2D` as its
+      first positional argument, a free-function shape genuinely incompatible with `CanvasBase`'s
+      instance-method-over-constructor-held-`context` design without a real wrapper-class redesign
+      for no behavior change. No migration done.
+
+### Batch 2 — axis/layout (adapter-needed, do after Batch 1 lands)
+
+- [ ] `useAxis.ts` (`computeRangeDomain`, `resolveAxisOrient`) / `useChartLayout.ts` → **partial
+      migration only; do not force a full class-based rewrite.** `computeRangeDomain`'s "nice domain"
+      algorithm is confirmed (by this file's own doc comment, and independently re-confirmed by
+      `jui-graph-ts/src/grid/range.ts`'s own header comment doing the reverse cross-check against
+      this exact file - "no discrepancy found") to be a faithful port of `grid/range.ts`'s
+      `RangeGrid.initDomain()`; the block-axis path likewise matches `grid/block.ts`'s `BlockGrid`.
+      **However**, `RangeGrid`/`BlockGrid` are real `CoreGrid`-family `Draw` subclasses (`extend:
+      "chart.grid.core"`) that need a live `chart`/`axis`/SVG-group context and have their own
+      `drawBefore()`/`wrapper()`/`top()`/`bottom()`/`left()`/`right()` DOM-rendering side effects
+      baked in alongside the pure domain math - there is no way to call just `initDomain()` in
+      isolation without either instantiating a full fake chart/axis/SVG context (heavy, fragile
+      adapter) or duplicating the class's internals back out into a free function (defeats the point
+      of migrating). Recommendation: after Batch 1's `linearScaleUtil`/`ordinalScaleUtil`/`mathUtil`
+      swap lands (which already covers the scale-construction half of this file), leave
+      `computeRangeDomain`/`resolveAxisOrient` as this project's own maintained pure functions - they
+      are now independently cross-verified correct against the real `RangeGrid`/`BlockGrid` source
+      (see above), so there's no correctness gap left to close, only an architecture-purity one that
+      isn't worth the adapter cost. Revisit only if a future feature needs `Axis`'s other
+      responsibilities (`area()`/`padding()`/`zoom()`/`next()`/`prev()` from `base/axis.ts`'s real
+      `Axis` class) for real, at which point building a proper `Axis`-instance-holding composable
+      wrapper (constructing an `Axis` per chart, exposing `shallowRef`/`computed` views over its
+      mutable fields, since `Axis` is a plain mutable class with no reactivity of its own) becomes
+      worth doing for more than just this one piece.
+      **Test-risk: none from NOT migrating** (already-verified-correct); **test-risk if a future
+      adapter IS attempted**: `RangeGrid`'s `nice()` crash bug (see Batch 1's `mathUtil.ts` note)
+      would need to be handled explicitly, since a real `Axis`/`RangeGrid` instance would inherit it.
+- [ ] `useGridLayout.ts` → real counterpart is `jui-graph-ts`'s `TableGrid` (`grid/table.ts`,
+      `chart.grid.table`), but **exclude from migration**: `useGridLayout.ts`'s own doc comment
+      already says it deliberately diverges (`resolveGridRows`'s auto-derivation of `rows` from
+      `columns` is "a Vue-port ergonomic addition... not a port of original behavior", and it's
+      consumed via nested-`<svg>` positioning, not the original's shared-brush `axis.c(index)`
+      lookup). On top of that divergence, jui-graph-ts's own index.ts flags that `TableGrid`/
+      `OverlapGrid` both have "a genuine, previously-undocumented preserved bug where their computed
+      geometry/rects are never actually attached to the rendered tree" - i.e. the real `TableGrid` is
+      faithfully-ported but not actually usable for real layout as-is. Not a migration candidate.
+
+### Batch 3 — 3D engine (adapter-needed, most valuable non-mechanical migration)
+
+- [x] `usePolygon3d.ts`'s `rotatePolygonVertices` → `PolygonCore.rotate()` (`src/polygon/core.ts`).
+      **Real, strong match** - `polygon/core.ts`'s own header comment explicitly cross-checks this
+      exact file across four consuming iterations (`dot3d.js`, `column3d.js`/`line3d.js`,
+      `rotate3d.js`) and confirms `rotatePolygonVertices()` is jui-chart-vue's own from-scratch,
+      full-float64 reimplementation of the identical two-stage rotate-then-perspective-scale
+      algorithm `PolygonCore.rotate()` now ports as a real class method. Migration approach: adapter
+      needed, not mechanical - `PolygonCore.rotate(depth, degree, cx, cy, cz)` is an instance method
+      that mutates `this.vertices`/`this.vectors` in place (stateful), where
+      `rotatePolygonVertices(vertices, depth, degree, center, perspective)` is a pure function
+      returning new vectors. A thin wrapper (`new PolygonCore(); core.vertices = [...]; core.rotate(...);
+      return core.vectors`) can preserve today's pure-function call sites without touching every
+      consumer (`useDot3d.ts`, `useColumn3d.ts`, `useLine3d.ts`, `useRotate3d.ts`).
+      **Test-risk: real, specific, already documented by jui-graph-ts itself** - `polygon/core.ts`'s
+      header comment documents that `PolygonCore.rotate()` reuses the REAL, already-ported
+      `Transform` class (`util/transform.ts`), whose `matrixDispatch()` routes 4x4 (3D) operations
+      through a LOCALLY-DUPLICATED `matrix3d()`/`deepMatrix3d()` (Float32Array-producing) at a call
+      site where the pristine original engine's `Transform.calculate()` always calls plain-array
+      `math.matrix()` instead (never `matrix3d()`) - so this port's `Transform`-based `rotate()`
+      inherits "one extra layer of float32-precision rounding on the final per-point dot-product sum"
+      that the pristine original wouldn't have. jui-graph-ts's own writeup says this is
+      "Node-cross-checked: every hand-traced case... matches jui-chart-vue's own full-float64 oracle
+      to within ~1e-6" - **well under rendering-visible threshold, but `useDot3d.spec.ts`/
+      `useColumn3d.spec.ts`/`useLine3d.spec.ts`/`useRotate3d.spec.ts`/`usePolygon3d.spec.ts`'s
+      existing hand-traced exact-equality assertions on rotated vertex coordinates will need an
+      epsilon tolerance (e.g. `toBeCloseTo(x, 5)` instead of `toBe(x)`) if this migration is done**,
+      or the ~1e-6 drift will fail CI on values that happen to land exactly on a float32 rounding
+      boundary in the current float64 tests. Flag this explicitly in the migration PR description.
+      **DONE**: `rotatePolygonVertices(vertices, depth, degree, center, perspective)` now constructs
+      a throwaway `new PolygonCore()`, sets `core.perspective = perspective`, seeds
+      `core.vertices = vertices.map((v) => [v.x, v.y, v.z, v.w])` (plain `number[]` rows - confirmed
+      `Transform.calculate()`/`matrixDispatch()` only ever index rows positionally, so a plain array
+      behaves identically to `CubePolygon`'s own `Float32Array` rows; the documented float32 drift
+      comes from `Transform.custom()`'s internal `matrix3d()` call, not from the input row type),
+      calls `core.rotate(depth, degree, center.x, center.y, center.z)`, then reshapes
+      `core.vertices` back into this function's own `Vector3[]` return shape - exact same exported
+      signature, zero call-site changes needed in `useDot3d.ts`/`useColumn3d.ts`/`useLine3d.ts`.
+      The predicted float32 test-risk was real but narrow: baseline (pre-migration) was 58/58 passing
+      across `useDot3d.spec.ts`/`useColumn3d.spec.ts`/`useLine3d.spec.ts`/`useRotate3d.spec.ts`/
+      `usePolygon3d.spec.ts`; post-migration only ONE assertion failed -
+      `usePolygon3d.spec.ts`'s "rotating around a non-origin center keeps the center point fixed"
+      (`rotatePolygonVertices([vertex(50,60,0)], 100000, {x:0,y:45,z:0}, {x:50,y:60,z:0}, 1)`,
+      asserting the rotation center's own `z` stays `0`). Measured drift: `5.960464477539062e-7`
+      absolute (the assertion's own diff message) - a few ULPs of float32 precision, exactly
+      matching `polygon/core.ts`'s own documented "~1e-6" finding, not a logic bug (verified: `x`/`y`
+      on the SAME assertion, expected `50`/`60`, still pass at the original `toBeCloseTo(_, 6)`
+      tolerance since their non-zero expected magnitudes absorb the same absolute drift comfortably
+      - only `z`'s zero-expected-value made the drift assertion-relevant). Fixed by loosening ONLY
+      that one `expect(out[0].z)` line from `toBeCloseTo(0, 6)` to `toBeCloseTo(0, 5)` (tightest
+      precision that reliably clears the measured ~6e-7 drift with margin), leaving `x`/`y` on that
+      same test and every other assertion in all 5 spec files untouched - every other hand-traced
+      case (identity rotation at z=0/z=depth, `rotY(90)` on `(1,0,0)`, all of `useDot3d.spec.ts`/
+      `useColumn3d.spec.ts`/`useLine3d.spec.ts`/`useRotate3d.spec.ts`) already passed at its existing
+      tolerance with no changes - the float32 drift, while real, did not turn out to be
+      rendering-visible or even test-visible except at this one precision-6-on-a-zero-expected-value
+      edge case.
+- [x] `usePolygon3d.ts`'s `cubeVertices`/`CUBE_FACES` → `CubePolygon` (`src/polygon/cube.ts`).
+      jui-graph-ts's own index.ts confirms this was "cross-checked directly against jui-chart-vue's
+      `usePolygon3d.ts`'s `cubeVertices()`/`CUBE_FACES` (added specifically as a port of this file)".
+      Same adapter shape and same float32-rounding test-risk as `rotatePolygonVertices` above (
+      `CubePolygon extends PolygonCore`, so its `.rotate()` inherits the identical discrepancy).
+      Consumer: `useColumn3d.ts`.
+      **DONE**: `cubeVertices(x, y, z, w, h, d)` now constructs a throwaway
+      `new CubePolygon(x, y, z, w, h, d)` and reshapes its 8 `Float32Array` vertex rows back into
+      this function's own `Vertex4[]` (via the existing `vertex()` helper). `CUBE_FACES` now reads
+      directly off a throwaway `new CubePolygon(0, 0, 0, 0, 0, 0).faces` (constructor-args-independent
+      literal, confirmed byte-identical to the previous hand-maintained `CUBE_FACES` array) rather
+      than duplicating the same 6 quadruples as a second hand-written constant - single source of
+      truth in jui-graph-ts. No epsilon tolerance was needed for `cubeVertices` itself:
+      `usePolygon3d.spec.ts`'s own hand-traced test (`cubeVertices(1,2,3,10,20,30)`) uses only
+      integer pixel coordinates, which are exactly representable in float32, so the `Float32Array`
+      round-trip through `CubePolygon`'s constructor introduces zero drift at that step - the
+      `toEqual` assertions on the 8 vertex `[x,y,z]` triples and the `w===1` check both still pass
+      exactly unmodified. `useColumn3d.spec.ts` (which chains `cubeVertices()` into
+      `rotatePolygonVertices()`) also passed unmodified at its existing tolerance - the only
+      test-visible float32 drift anywhere across this migration was the single `usePolygon3d.spec.ts`
+      assertion documented above. Per the plan's own note, `vertex`/`move3dMatrix`/`scale3dMatrix`/
+      `rotate3dxMatrix`/`rotate3dyMatrix`/`rotate3dzMatrix`/`multiplyMatrixMatrix4`/
+      `multiplyMatrixVector4` were intentionally left in place, NOT deleted, even though
+      `rotatePolygonVertices`/`cubeVertices` no longer call them internally - `usePolygon3d.spec.ts`
+      still directly unit-tests several of them as their own hand-traced oracle (`move3dMatrix`/
+      `scale3dMatrix`/`rotate3d{x,y,z}Matrix`/`multiplyMatrixMatrix4`/`multiplyMatrixVector4`), and
+      `vertex()` is still actively used (by `cubeVertices()`'s own adapter, plus `useDot3d.ts`/
+      `useLine3d.ts`, which import it directly) - deleting them was out of this task's scope and
+      would have broken those still-valid direct unit tests for no behavior change. Only the
+      genuinely dead, non-exported `IDENTITY4` local constant was removed (a `noUnusedLocals`
+      compile error otherwise, since `rotatePolygonVertices` no longer references it).
+
+      **Playwright visual verification** (dev server on port 5183 + a temporary `npx playwright`
+      script, `NODE_PATH`-borrowed `playwright` from `../jui-grid-vue/node_modules`, same pattern as
+      every prior Phase E demo): `/dot3d` (canvas pixel-readback) - point "A"'s hand-computed pixel
+      `(252,144)` and point "B"'s `(142,77)` both filled with the theme color (`rgba(121,119,194,255)`)
+      at degree `(0,0,0)`; clicking "Rotate Y +15deg" makes point A's original pixel go transparent
+      (confirms the live `PolygonCore`-backed projection actually redraws, not a static snapshot);
+      "Reset rotation" returns that exact same pixel to its original RGBA - confirms round-trip
+      correctness through the new adapter. `/column3d` (SVG `<polygon>` point inspection) - 24
+      `<polygon>` faces (6 faces x 4 columns), zero `NaN` coordinates in any `points` attribute
+      before OR after clicking "Rotate X +15deg", and the point strings genuinely changed after the
+      click (live re-render confirmed). `/line3d` - 4 `<polygon>` ribbon segments, zero `NaN`
+      coordinates before/after "Rotate Y +15deg", point strings changed after the click. Zero
+      console/page errors across all three routes. No broken geometry or NaN positions found - the
+      `PolygonCore`/`CubePolygon` adapter renders identically to the pre-migration hand-port at
+      visual/interactive granularity.
+
+      **Full verification**: baseline (pre-migration) `npm run test` was 650/650 across the whole
+      suite (58/58 across the 5 flagged spec files); post-migration `npm run test` is still
+      **650/650** (same total - only the one assertion above changed its tolerance, no tests
+      added/removed). `npm run build:lib` and `npm run build` (`vue-tsc -b && vite build`) both pass
+      cleanly - required two small non-behavioral cleanups beyond the assertion fix: `mathUtil.ts`'s
+      `scaleValue` import became unused (the perspective-scale math now lives inside
+      `PolygonCore.rotate()`) and was removed; the two `core.vertices.map((v) => ...)` adapter
+      callbacks needed an explicit `(v: number[] | Float32Array)` parameter type (TS couldn't infer
+      it through the `PolygonVertex[]`-typed field without it, `noUnusedLocals`/strict mode).
+- [ ] `usePolygon3d.ts`'s `vertex`/`move3dMatrix`/`scale3dMatrix`/`rotate3dxMatrix`/`rotate3dyMatrix`/
+      `rotate3dzMatrix`/`multiplyMatrixMatrix4`/`multiplyMatrixVector4` → these are this file's own
+      lower-level matrix building blocks, roughly paralleling `transformUtil`'s `Transform.matrix()`
+      (`src/util/transform.ts`) + `mathUtil.matrix3d()`/`inverseMatrix3d()`. **Do not migrate
+      separately** - once `rotatePolygonVertices`/`cubeVertices` above are migrated to
+      `PolygonCore`/`CubePolygon` (which use `Transform`/`matrix3d` internally), these low-level
+      helpers become dead code in this file and can simply be deleted rather than individually
+      swapped for `transformUtil`/`mathUtil` equivalents.
+- [ ] `useDot3d.ts`, `useColumn3d.ts`, `useLine3d.ts` (the brush-level draw-building logic, e.g.
+      `buildDot3dDraws`/depth sort) → **no direct jui-graph-ts equivalent, exclude** - these hand-port
+      `jui-chart`'s own leaf brush files (`brush/canvas/dot3d.js`, `brush/polygon/column3d.js`,
+      `brush/polygon/line3d.js`), which live in `jui-chart`, not `juijs-graph` - out of jui-graph-ts's
+      porting scope entirely (jui-graph-ts only ports `juijs-graph`, the base engine). Only their
+      shared `PolygonCore`/`CubePolygon`/`Transform` dependency (above) is real migratable surface;
+      the brush-specific depth-sort/draw-list logic stays hand-ported here, same as every other
+      concrete brush (see "excluded" list below).
+- [ ] `PointPolygon`/`GridPolygon`/`LinePolygon` (`src/polygon/point.ts`/`grid.ts`/`line.ts`) - no
+      current jui-chart-vue consumer (no ported 3D grid-mesh rendering, no `LinePolygon` usage - `dot3d.js`
+      uses `PointPolygon` per-vertex, not this project's `useDot3d.ts` shape). Nothing to map yet;
+      note only, not an actionable item.
+
+### Excluded — not migrating, with reasons
+
+- [ ] `kinetic.ts` — not a hand-port of `juijs-graph` at all; it's a thin instantiation shim over a
+      vendored, unrelated third-party physics library (`kinetic.js`, permanent-vendor bucket per this
+      project's own Phase E policy). No `jui-graph-ts` relevance - `juijs-graph` never vendors this
+      library either (it's `jui-chart`'s own dependency).
+- [ ] `canvasPrimitives.ts` — see Batch 1 above; jui-graph-ts's own `canvasBaseUtil`/`CanvasBase`
+      header comment already concluded these are two independently-shaped, non-interchangeable APIs.
+- [ ] `bubble.ts`, `mortalBubble.ts`, `useActiveBubble.ts`, `useActiveCircle.ts`, `useBubbleCloud.ts`,
+      `useEqualizerColumn.ts`, `usePickerWidget.ts`, `useRaycast.ts`, `useRotate3d.ts`'s own
+      widget-specific logic — all hand-port concrete `jui-chart` leaf brush/widget files
+      (`activebubble.js`, `activecircle.js`, `bubblecloud.js`, `equalizercolumn.js`, `picker.js`,
+      `raycast.js`, `rotate3d.js`), which extend jui-graph-ts's real, now-ported `CanvasCoreBrush`/
+      `CoreWidget`/`PolygonCoreWidget` base classes but are themselves `jui-chart`-only code -
+      `jui-graph-ts` only ports `juijs-graph`, so there is no leaf-level counterpart to swap to.
+      Re-architecting these composables to instantiate `CanvasCoreBrush`/`CoreWidget` just to get the
+      shared base-class plumbing (`addPolygon()`/depth-sort/`drawAfter()`) would be a genuine
+      redesign (class-instance-holding adapter replacing today's pure-function composable shape) for
+      no behavior change and no new capability - pure churn. Not recommended.
+- [ ] `usePin.ts`, `useGauge.ts`, `usePyramid.ts`, `useFocus.ts`, `useFlame.ts`, `useTimeline.ts`,
+      `useTreemap.ts`, `useTopology.ts`, `useTopologyZoom.ts`, `useHeatmap.ts`, `useHeatmapScatter.ts`,
+      `usePie.ts`'s own slice-angle logic, `useActive.ts`'s own hover math, `useScatter.ts`,
+      `useSeries.ts`, `useBubble.ts`'s own brush logic, `useSelectBox.ts`, `useDragSelect.ts`,
+      `useScrollWindow.ts`, `useZoomScroll.ts`, `useZoomWindow.ts`, `useLegend.ts`, `useHoverGuide.ts`,
+      `tooltipMeasure.ts`, `useTheme.ts`, `useArcEqualizer.ts`'s own brush logic, `useCanvasChart.ts` —
+      all hand-port concrete `jui-chart` brush/widget leaf files or are inherently Vue-specific
+      reactivity/DOM-measurement glue (`tooltipMeasure.ts`'s offscreen `<svg><text>` measurement,
+      `useChartLayout.ts`'s `ComputedRef`/`shallowRef` wiring, `useCanvasChart.ts`'s RAF/DPI loop -
+      confirmed by that file's own doc comment to have "ZERO canvas-context/DPI/RAF-loop logic of any
+      kind" in jui-graph-ts's real `CanvasCoreBrush`, i.e. entirely this project's own invention).
+      `juijs-graph` doesn't contain any concrete chart-type brushes at all (only base
+      `CoreBrush`/`CanvasCoreBrush`/`PolygonCoreBrush`/`MapCoreBrush` classes, Phase E) - jui-graph-ts
+      has nothing further to offer these files until/unless it starts porting `jui-chart` itself
+      (a different, unstarted project). No mapping forced.
+- [ ] `jui-graph-ts`'s `base/map.ts` (`Map` class) and any `grid`/`polygon` map-related stubs — zero
+      relevance to jui-chart-vue: no map/geo chart feature exists in this project at all (confirmed:
+      no `useMap*`/`Map*Chart` composable or component anywhere in `src/`). Excluded outright, not a
+      "maybe later" item.
+- [ ] `useSelectBox.ts` — its own doc comment notes the real `selectbox.js` depends on
+      `util.scale.time` (jui-graph-ts's real, ported `timeScaleUtil`, `src/util/scale/time.ts`), which
+      this project deliberately does not use (no date/time axis type exists here at all - a
+      documented, real gap, not an oversight). `timeScaleUtil` is therefore a *future feature
+      opportunity* if a date/time axis is ever added, not a migration target for the current
+      `useSelectBox.ts`, which has no time-scale logic to swap today.
+
+### `package.json`
+
+`jui-graph-ts` is not yet a `dependencies` entry in this project's `package.json` - needs to be
+added (e.g. `"jui-graph-ts": "workspace:*"` or a relative/file reference, matching however the two
+sibling projects are actually linked) before any Batch 1 item can import from it. Not done as part
+of this planning task.
+
+**Superseded**: added as part of Batch 1's execution - `"jui-graph-ts": "file:../jui-graph-ts"` is
+now a real `dependencies` entry, resolved via `node_modules/jui-graph-ts` (a symlink to the sibling
+project) to its built `dist-lib/` output (`main`/`module`/`types` point there). Confirmed still
+correct as of Batch 3.
+
+## Phase H — Completeness audit: missing theme presets (`theme/gradient.js`, `theme/pattern.js`)
+
+A completeness audit of `jui-chart/src/theme/` found that only 2 of jui-chart's 4 theme presets had
+ever been ported: `classic.js`/`dark.js` (both in `useTheme.ts` since the MVP pilot) but NOT
+`gradient.js`/`pattern.js` - and this exclusion was never documented anywhere in this file. Both are
+now ported (TDD: `useTheme.spec.ts` written and confirmed red - 16/16 failing on
+`gradientTheme`/`patternTheme` not existing - before any implementation, then green after).
+
+- [x] `theme/gradient.js` → `gradientTheme` (`useTheme.ts`). Upstream declares `extend: null` (its
+      own full flat object, not literally built by extending `classic.js`) - this port still builds
+      it as `{...classicTheme, ...overrides}`, matching `darkTheme`'s own established DRY
+      convention; every value (overridden or left inherited) was individually hand-traced against
+      the real source file, not inferred from the spread. Every field difference from `classicTheme`
+      across the whole `ChartTheme` interface was enumerated field-by-field before writing the spec:
+      `gridXFontColor`/`gridYFontColor` (`#666`), `gridXAxisBorderColor`/`gridYAxisBorderColor`/
+      `gridBorderColor` (`#efefef`), `pieBorderColor` (`#fff`), `areaBackgroundOpacity` (`0.4`),
+      `scatterBorderWidth` (`2`), `candlestickBackgroundColor`/`candlestickInvertBackgroundColor`
+      (`"linear(top) #fff"`/`"linear(top) #ff0000"` - degenerate single-stop gradient strings, ported
+      verbatim rather than "corrected" to plain hex), `legendFontColor` (`#666`),
+      `tooltipBackgroundOpacity` (`1`), `tooltipLineWidth` (`1`), `timelineTitleFontSize` (`11`),
+      `timelineColumnBackgroundColor` (`"linear(top) #f9f9f9,1 #e9e9e9"`),
+      `timelineEvenRowBackgroundColor`/`timelineOddRowBackgroundColor` (`#fafafa`/`#f1f0f3`),
+      `timelineVerticalLineColor`/`timelineHorizontalLineColor` (`#c9c9c9`/`#d2d2d2`),
+      `flameTextFontSize` (`12`). Everything else (fontFamily, backgroundColor, bar*/pin*/gauge*/
+      topology* radii-and-radii-adjacent tokens, etc) is identical to `classic.js` and left
+      un-overridden.
+      **Two preserved source quirks** (found by reading the file in full, not guessed):
+      1. `colors` has only **19** gradient-string entries (`"linear(top) #c1,<stop> #c2"`), one
+         fewer than `classic`'s/`dark`'s 20/16 (and `pattern`'s 12) - a genuine upstream gap (no
+         gradient equivalent for `classic.js`'s 16th color, `#C57BC3`), reproduced exactly rather
+         than padded to 20.
+      2. `gradient.js` omits `tooltipPointFontSize` and all 4 `selectBox*` tokens entirely (present
+         in `classic.js`/`pattern.js` - `selectbox.js` may simply postdate this theme file). In the
+         original engine, `theme("tooltipPointFontSize")` on this theme resolves to `undefined`.
+         `ChartTheme` requires both as non-optional, so `gradientTheme` inherits `classicTheme`'s
+         values (`11` / `#666,0.1,#666,0.2`) via the spread - a forced, documented deviation from
+         that literal `undefined`, not a faithful reproduction of it.
+      **Scope decision on the gradient-string format itself** (see `useTheme.ts`'s "Theme scope
+      boundary" doc comment for the full writeup): traced whether `"linear(top) #c1,<stop> #c2"` is
+      a real, consumed rendering format or decorative palette metadata, by grepping jui-chart's
+      compiled `dist/jui-chart.js` (the actual parser lives in the `jui-graphics`/`jui-core`
+      dependency jui-chart bundles, invisible in jui-chart's own `src/`, where a plain source grep
+      for `"linear("` outside `theme/` finds nothing). **Confirmed real**: `ColorUtil.parseGradient`/
+      `parseAttr`/`parseStop` (`dist/jui-chart.js:6065-6152`) parse this exact DSL into
+      `{x1,y1,x2,y2}` + `<stop>` children, and `chart.color(index)` → `createColor()` →
+      `createGradient()` (`:11850-11952`) builds a real SVG `<linearGradient>` def and returns
+      `url(#gradient-N)` as the resolved fill - not decorative. Also confirmed non-decorative
+      independent of `colors`: `gradient.js` assigns this same format to a single already-ported
+      token, `timelineColumnBackgroundColor` (`"linear(top) #f9f9f9,1 #e9e9e9"`, vs. `classic.js`'s
+      plain `"#fff"`), proving it's a real per-theme override value, not just palette flavor text.
+      Despite being confirmed real, this port does NOT implement the parser + SVG-`<linearGradient>`-
+      defs-registry rendering pipeline (see the Pattern scope-boundary decision immediately below -
+      same treatment, same reasoning, applied consistently to both). Ported the token strings
+      faithfully; documented the rendering gap as a deliberate scope boundary, not silently
+      half-implemented.
+
+- [x] `theme/pattern.js` → `patternTheme` (`useTheme.ts`). Same `{...classicTheme, ...overrides}`
+      convention. Field-by-field diff against `classicTheme`: `gridXAxisBorderColor`/
+      `gridYAxisBorderColor` (`#ebebeb`), `barBorderColor`/`barBorderWidth`/`barBorderOpacity`/
+      `barBorderRadius` (`#000`/`1`/`1`/`5` - a visibly bordered, differently-radiused bar look vs.
+      classic's borderless `barBorderRadius:3`), `pieBorderColor` (`#fff`), `tooltipLineWidth` (`1`),
+      `timelineTitleFontSize` (`11`), `timelineColumnBackgroundColor`
+      (`"linear(top) #f9f9f9,1 #e9e9e9"` - same value as `gradient.js`'s, a genuine gradient-string
+      token even in the *pattern* theme), `timelineEvenRowBackgroundColor`/
+      `timelineOddRowBackgroundColor` (`#fafafa`/`#f1f0f3`), `timelineVerticalLineColor`/
+      `timelineHorizontalLineColor` (`#c9c9c9`/`#d2d2d2`), `flameTextFontSize` (`12`). `colors` is
+      the 12-entry `"pattern-jennifer-01"`..`"-12"` name palette, matching `pattern/classic.js`'s 12
+      SVG `<pattern>` defs 1:1 (verified by reading `pattern/classic.js` in full - each name maps to
+      a `{type:"pattern", attr:{id, width:12, height:12, patternUnits:"userSpaceOnUse"}, children:
+      [{type:"image", attr:{"xlink:href":"data:image/png;base64,...", width:12, height:12}}]}` def,
+      a small tiled base64 PNG texture, not a procedural SVG pattern).
+      **Preserved source quirk shared with `gradient.js`**: `pattern.js` also omits all 4
+      `selectBox*` tokens (same inherited-from-`classicTheme` treatment, documented on
+      `gradientTheme` above). Unlike `gradient.js`, `pattern.js` does NOT omit
+      `tooltipPointFontSize` (defines it explicitly as `11`, same as `classicTheme`, so no override
+      entry needed either way) - confirmed by reading, not assumed identical just because both are
+      "the other two theme files."
+      **Scope decision on `pattern-jennifer-NN` + `pattern/classic.js`'s SVG defs**: confirmed real
+      and actively resolved (not decorative), same grep-the-compiled-bundle method as gradient above:
+      `chart.color(index)` → `createColor()` → `createPattern()` (`dist/jui-chart.js:11881-11924`)
+      treats a `"pattern-*"` string as `jui.include("chart.pattern." + name)` (i.e. looks up
+      `chart.pattern.classic`'s exported object, keyed `"01"`-`"12"`, matching `pattern.js`'s
+      `"pattern-jennifer-01..12"` names 1:1), converts that JSON pattern def to a real SVG element,
+      injects it into the chart's `<defs>`, and returns `url(#pattern-jennifer-NN)` as the resolved
+      fill. **Scope call**: port the theme-token preset (the `colors` array + the token overrides
+      above) now; explicitly do NOT port `pattern/classic.js`'s 12 SVG pattern defs or the
+      defs-registry/lookup pipeline that would make `theme="pattern"` actually render tiled-texture
+      fills - that is a substantial, genuinely separate feature (equivalent to porting `ColorUtil`'s
+      gradient parser too, since both share the same `createColor()` dispatch point, plus wiring a
+      `<defs>` registry into every brush component that calls `color()`/`theme()`), not a small
+      addition to bolt on silently here. Flagged as a deliberate, documented boundary for a future
+      task - matching this port's own established discipline for "confirmed real dependency, too
+      large for this task" calls (e.g. `useSelectBox.ts`'s `util.scale.time` exclusion above).
+      **Consequence, verified via Playwright, not just asserted**: with no defs-registry, a chart
+      rendered today with `theme="gradient"`/`theme="pattern"` passes these raw strings straight
+      into an SVG `fill` attribute; the browser treats `fill="linear(top) #9694e0,0.9 #7977C2"` (or
+      `fill="pattern-jennifer-01"`) as invalid and falls back to the SVG default fill (solid black) -
+      confirmed by screenshotting `/bar`'s new "theme=\"gradient\" / theme=\"pattern\"" demo section
+      (added to `BarPage.vue`): bars render with correct geometry/axes/borders but solid black fill,
+      exactly as this scope-boundary writeup predicts. Zero console/page errors.
+
+- [x] **`icon/classic.js` (`chart.icon.classic`) - confirmed OUT of scope entirely, not merely
+      deferred.** The audit's own framing asked whether this is genuinely coupled to the pattern
+      theme (it sits in a sibling `icon/` directory next to `theme/`/`pattern/`) or an unrelated
+      legacy system. Read in full (198 lines, a flat `{alias: "\ueXXX"}` unicode icon-font glyph
+      map) and grepped for cross-references: zero hits for `chart.icon`/`icon.classic` anywhere in
+      `theme.js`/`gradient.js`/`pattern.js`, or in the `createColor()`/`createGradient()`/
+      `createPattern()` theme-resolution code path traced above. Its only consumer, confirmed from
+      the compiled bundle, is a wholly separate API: `this.icon(key)` →
+      `jui.include("chart.icon." + _options.icon.type)[key]` (`dist/jui-chart.js:12278-12280`) -
+      driven by a chart-level `_options.icon.type` option (defaulting to `"classic"`), completely
+      independent of the active *theme* name/preset. It happens to share the `chart.<category>.
+      classic` module-naming convention with `theme.classic`/`pattern.classic`, which is presumably
+      why it was flagged for review, but it is not theme-system code and is excluded outright.
+
+**Verification**: `useTheme.spec.ts` - 16 new tests (red before implementation, confirmed via a
+dedicated pre-implementation run showing all 16 failing on `gradientTheme`/`patternTheme` being
+undefined; green after), covering: the full 19/12-entry `colors` arrays, every overridden token
+listed above, the two documented "inherited despite upstream omitting it" quirks
+(`tooltipPointFontSize`, `selectBox*`), representative un-overridden/inherited-from-`classicTheme`
+fields, `useTheme()` resolving `'gradient'`/`'pattern'` names to the right object, and `color()`'s
+modulo-cycling correctly wrapping at each theme's own (non-20) palette length. `ThemeName`
+(`src/types.ts`) widened to `'classic' | 'dark' | 'gradient' | 'pattern'`. Full suite:
+`npm run test` 48/48 files, 679/679 tests passing (663 prior + 16 new), `vue-tsc -b` (typecheck)
+clean, `npm run build:lib` clean, `npm run build` clean. Playwright: new `theme="gradient"`/
+`theme="pattern"` `BarChart` demo section added to `/bar` (`BarPage.vue`) since no existing
+theme-switcher demo infrastructure exists anywhere in `src/pages/` (every component takes its own
+`theme?: ThemeName` prop, set per-demo-chart, not a global switcher) - screenshotted and confirmed
+zero console/page errors and the documented black-fill fallback described above.
+
 ## Done (MVP pilot, verified)
 
 - [x] `LineChart.vue`, `AreaChart.vue`, `BarChart.vue` (bar+column via `orient`), `PieChart.vue`,
@@ -6905,3 +7450,392 @@ as "checked, no confirmed match, kept as a hand-port" rather than guessing eithe
 - [x] `useScale.ts`, `useAxis.ts`, `useSeries.ts`, `usePie.ts`, `useTheme.ts`, `useChartLayout.ts`
 - [x] Playwright-verified rendering for all 5 types, pie/donut outside-label clipping bug found
       and fixed
+
+## Completeness-audit fix — `title.js` (retroactive writeup)
+
+A completeness audit found `ChartTitle.vue` (MVP pilot stage, listed above) was the **only file in
+this whole multi-month port that skipped the "extend chain / quirks / verification" writeup
+discipline every later item in this file follows** - it shipped as a simplified `(x, y)`-prop text
+label rather than a real port of `chart.widget.title`'s own orient/align/rotation logic, with no
+entry explaining the deviation. This section closes that gap: a faithful hand-port of `title.js`,
+done via TDD, with the full writeup this file's own convention requires.
+
+- [x] `title.js` (107 lines) — `ChartTitle.vue` + new `useChartTitle.ts`. **`extend:
+      "chart.widget.core"`, confirmed from source** (matches every other Phase D widget's own
+      chain) - and confirmed, from a full source read, to make **zero `jui.include(...)` calls**:
+      every bit of orient/align/rotation math is `title.js`'s own leaf-level code, nothing here
+      traces back into `juijs-graph`/`jui-graph-ts`.
+
+      **The deprecated-fallback decision, and why (the load-bearing design call this item hinged
+      on)**: source's `drawBefore()` has two branches - `if(axis) { ... } else { // @Deprecated
+      나중에 제거하기 (모든 샘플 axis 기반으로 변경할 것) ... }` ("remove later, move all samples to
+      axis-based"). **Only the `else` branch is ported; the `if(axis)` branch is not.** This was
+      checked against the real engine source, not assumed: `juijs-graph/src/base/builder.js`'s
+      `calculate()` (~line 428) shows `chart.area()`/`chart.padding()` are exactly `{x:
+      padding.left, y: padding.top, x2, y2, width, height}` derived from ONE shared top-level
+      padding config - precisely the shape `useChartLayout.ts`'s own `area`/`padding` computed
+      values already reproduce. But `juijs-graph/src/base/axis.js` (~line 12-13, 390-438) shows
+      `axis.area()`/`axis.padding()` is a genuinely SEPARATE, per-axis nested region+padding (each
+      axis widget can own its own sub-panel via its own `options.area`/`options.padding`, for
+      upstream's multi-axis-grid layouts - e.g. several stacked y-axes each with their own strip).
+      `useChartLayout.ts`'s own header comment already disclaims that second concept explicitly
+      ("Not axis-grid-specific... PieChart/DonutChart don't use this" - exactly ONE shared plot
+      `area` for `axisX`/`axisY` together), and `AxisConfig` (`types.ts`) carries no `padding`
+      field of its own at all. So `chart.axis(widget.axis)` would have **no real per-axis
+      area/padding to resolve against** in this port's architecture - implementing an `axis` prop
+      would mean inventing a second area/padding concept with no other consumer, that would always
+      degenerate to the exact same numbers as the chart-level path (since there's only one "area"
+      in this port), making it untestable, unfalsifiable dead code rather than a faithful port of
+      a real behavioral difference. Confirmed independently from the caller side too: all 27
+      `<ChartTitle>` call sites in this codebase (one per chart type) render a whole-chart title
+      with no axis concept whatsoever - not one of them has ever needed the `if(axis)` path. So the
+      branch source itself marked for deletion is, in this port, the only one with any real
+      callers or any real data to compute from - it becomes this port's *sole* positioning mode
+      (no longer "deprecated" in this codebase, since there's no non-deprecated alternative here).
+
+      **Follow-up (user-directed re-check): is the `if(axis)` branch dead code in the ORIGINAL
+      too, not just in this port?** Confirmed yes, decisively - `grep`-checked every `"title"`
+      widget config across all of `jui-chart/examples/*.html` (7 files use it, including
+      `multi_axis_with_zoom.html`/`multi_axis_with_zoom_for_date.html`, which genuinely DO
+      configure multiple named axes elsewhere in the same chart): **not one single example ever
+      sets a title widget's `axis` option.** `TitleWidget.setup()` defaults `axis: null`, and
+      `base/builder.js`'s real `this.axis = function(key) { return _axis[key] }` means
+      `chart.axis(null)` resolves to `_axis[null]` -> `undefined` (falsy) - so `if(axis)` never
+      evaluates true in any real, demonstrated usage of the library, even in its own multi-axis
+      combo-chart examples. Same category of finding as `base/map.js`'s unreachable `render()` bug
+      (jui-graph-ts Phase B) - a source-level branch nobody has ever actually observed running.
+      Decision: leave unported, as the branch was already excluded above on independent
+      port-architecture grounds; this closes the loop with source-level confirmation that no
+      real-world behavior is being left unreproduced.
+
+      **Math, hand-traced against source's `else` branch** (`title.js:37-54`, `draw():58-82`) -
+      `PADDING = 20` is the only constant this port needs (`TOP_PADDING = 25` is exclusive to the
+      unported `if(axis)` branch). `width`/`height`/`padding` props replace `chart.area()`/
+      `chart.padding()` - `useChartTitle.ts`'s `computeChartArea()` reproduces `chart.builder`'s
+      own `calculate()` exactly, so non-axis chart types (`PieChart`/`DonutChart`/... that never
+      call `useChartLayout` at all) don't need to pre-build a plot-area object either, just pass
+      their own `width`/`height`. Fixture: `width=400, height=300,
+      padding={top:20,right:24,bottom:32,left:48}` → `area={x:48,y:20,x2:376,y2:268,width:328,
+      height:248}` (hand-derived in `useChartTitle.spec.ts`'s header comment before any code was
+      written). Orient (y): `"bottom"` → `area.y2 + padding.bottom - PADDING` (=`280`; note
+      `padding.bottom` algebraically CANCELS against the `-padding.bottom` already folded into
+      `area.y2` at fixture=`300`, i.e. this quirk really does reduce to `height - PADDING`
+      regardless of padding - confirmed by the math, not assumed); `"top"` → the **flat constant
+      `PADDING`(=`20`)**, a preserved quirk (ignores `area`/`padding` entirely, exactly as source
+      does - NOT `area.y`-derived); anything else (including `"center"`, the implicit-default
+      fallthrough, verified with a deliberately-invalid value in `useChartTitle.spec.ts`) →
+      `area.y + area.height/2` (=`144`). Align (x/anchor): `"middle"` → `area.x + area.width/2`
+      (=`212`)/`middle`; `"start"` → `area.x` (=`48`)/`start` (no `PADDING` inset here, unlike the
+      unported axis branch's `- axis.padding("left") + PADDING` - a real, preserved asymmetry
+      between the two source branches); anything else (including `"end"`, also verified with an
+      invalid value) → `area.x2` (=`376`)/`end`. `dx`/`dy` are added AFTER this positioning, and
+      the rotation center (below) is computed from the ALREADY-offset `x+dx`/`y+dy`, matching
+      source's `draw()` exactly (not `computeTitlePosition`'s pre-offset `x`/`y`).
+
+      **Vertical rotation, hand-traced**: fires ONLY for `orient === "center"` AND (`align ===
+      "start"` → `rotate(-90, x+dx+halfTextWidth, y+dy+halfTextHeight)` OR `align === "end"` →
+      `rotate(90, x+dx-halfTextWidth, y+dy+halfTextHeight)`) - `align === "middle"` with
+      `orient === "center"` is confirmed NOT rotated (source's inner `if` has no `else` for
+      `middle` - it just falls through with no `rotate()` call), a specific 2-of-9 orient×align
+      gate, not a general "vertical mode" flag - both the "no rotation" and "rotation" sides of
+      this gate are covered in both `useChartTitle.spec.ts` (pure) and `ChartTitle.spec.ts`
+      (mounted). Text measurement (`chart.svg.getTextSize(widget.text)` → `half_text_width`/
+      `half_text_height`) is ported as `measureTextSize()`, a new sibling of `tooltipMeasure.ts`'s
+      existing `measureTextWidth()` reusing the SAME module-level offscreen `<text>` element but
+      reading `getBBox()` (gives both width AND height in one call) instead of
+      `getComputedTextLength()` - not unit-tested directly under vitest/jsdom for the same reason
+      `measureTextWidth` isn't (no real font metrics), verified for real in Playwright instead (see
+      below); `computeTitleRotation()`'s own unit tests take a pre-measured half-width/half-height
+      as plain numbers so the rotation FORMULA is pinned exactly, independent of real glyph metrics.
+
+      **Other preserved quirks/bugs, confirmed from source**: (1) `font-weight` is **never
+      overridable** - `draw()` sets `"font-weight": chart.theme("titleFontWeight")`
+      unconditionally, no `widget.weight ||` fallback exists at all (unlike `color`/`size`, which
+      both use `widget.X || chart.theme(...)`) - kept as a plain pass-through `weight` prop (not
+      hardcoded internally) only because `ChartTitle` has no `chart`/theme instance of its own; all
+      27 callers already pass `theme('titleFontWeight')` straight through, matching source's own
+      always-theme behavior exactly. (2) `color`/`size` keep their real `||`-fallback shape (an
+      explicit prop wins, an unset prop falls back) - though since none of this port's 27 callers
+      ever expose a per-title color/size override of their own, every real caller always supplies
+      the theme value directly, same as before this port.
+
+      **One deliberate, documented +4px fix, not a preserved quirk**: the OLD simplified
+      `ChartTitle.vue` hardcoded every caller's `y` to `16` (an ad hoc approximation with no
+      source basis). The real `PADDING` constant is `20` - every one of the 27 callers below now
+      renders its title 4px lower, matching source's actual value instead of the old guess. `x`
+      is unaffected (`area.x + area.width/2` with an all-zero default `padding` reduces to exactly
+      `width/2`, byte-identical to the old `props.width / 2`).
+
+      **API shape**: `text`, `width`, `height` (chart's own SVG size - `chart.svg.size()`
+      equivalent), `padding?` (chart-level padding - `chart.padding()` equivalent, defaults to
+      all-zero since none of the 27 real callers has a chart-level-padding concept for its title
+      today), `orient?` (`"top"` default), `align?` (`"middle"` default), `dx?`/`dy?` (both `0`),
+      `color?`/`size?`/`weight?` (own sensible defaults, since `ChartTitle` has no theme of its
+      own). Raw `x`/`y` props are REMOVED, not kept alongside the new props - keeping both would
+      let `x`/`y` silently reintroduce the same un-ported, undocumented positioning path this item
+      exists to close, so replacing was the only architecturally consistent choice per the task's
+      own two-option framing (see the deprecated-fallback writeup above for the analogous
+      axis-prop decision, made on the same evidence).
+
+      **Callers updated - all 27, mechanically** (every one previously read
+      `:x="props.width / 2" :y="16"`, now `:width="props.width" :height="props.height"`, `orient`/
+      `align` left at their defaults since every caller wants the same top/middle placement as
+      before - only the `y` value changes, per the +4px fix above): `ArcEqualizerChart.vue`,
+      `AreaChart.vue`, `BarChart.vue`, `BarGaugeChart.vue`, `BubbleChart.vue`,
+      `CandlestickChart.vue`, `Column3DChart.vue`, `DonutChart.vue`, `EqualizerChart.vue`,
+      `FlameChart.vue`, `FocusChart.vue`, `FullGaugeChart.vue`, `HeatmapChart.vue`,
+      `HeatmapScatterChart.vue`, `Line3DChart.vue`, `LineChart.vue`, `PieChart.vue`,
+      `PinChart.vue`, `PyramidChart.vue`, `RangeAreaChart.vue`, `RangeBarChart.vue`,
+      `RateBarChart.vue`, `ScatterChart.vue`, `SelectBoxChart.vue`, `TimelineChart.vue`,
+      `TopologyChart.vue`, `TreemapChart.vue`. (`BubbleCloudChart.vue`/`ActiveBubbleChart.vue`
+      are canvas-rendered and never had a `<ChartTitle>` to begin with - unchanged.)
+
+      **TDD, red→green**: hand-derived the fixture above BY HAND against the real formulas
+      (written into `useChartTitle.spec.ts`'s own header comment) before writing any
+      implementation. Wrote `useChartTitle.spec.ts` (19 cases: `computeChartArea`/
+      `computeTitlePosition`'s full orient×align matrix incl. both implicit-default fallthroughs,
+      `computeTitleRotation`'s full gate) and `ChartTitle.spec.ts` (11 cases, mounted via
+      `@vue/test-utils`'s `mount()` - this port's first component-level `.spec.ts`, since every
+      prior widget's pure logic lived in a composable and was tested there; kept that split here
+      too via `useChartTitle.ts`, but the task's own explicit ask for a mounted spec was also
+      honored) against the OLD `x`/`y`-prop component first - confirmed 7/11 failed (`undefined` x/
+      y/anchor/transform, since the old component had no `orient`/`align`/`width`/`height` props
+      at all) before writing `ChartTitle.vue`'s real implementation. Implemented
+      `computeChartArea`/`computeTitlePosition`/`computeTitleRotation` in new `useChartTitle.ts`,
+      `measureTextSize` in `tooltipMeasure.ts`, rewrote `ChartTitle.vue` around them, migrated all
+      27 callers - both spec files went green (30/30) with no changes to the hand-derived
+      expected values.
+
+      **Playwright-verified** (dev server + a script reading rendered `<text>` attributes
+      directly): `/line`'s "Monthly visits & signups" title renders `x="300" y="20"
+      text-anchor="middle" fill="#333" font-size="13" font-weight="normal"` with no `transform` -
+      `x=300` confirms the `width/2`-equivalence fix (chart `width=600`), `y=20` confirms the
+      +4px `PADDING` fix over the old hardcoded `16`. Also temporarily set that same title to
+      `orient="center" align="start"` to exercise the rotation path with REAL font metrics (no
+      current demo page exposes `orient`/`align` as its own prop, since every real caller wants
+      top/middle - this was a one-line manual edit, reverted immediately after verifying):
+      rendered `x="0" y="200" text-anchor="start" transform="rotate(-90 65.9140625 207.5)"` -
+      non-degenerate, sensible `cx`/`cy` values confirm `getBBox()` measurement and the rotation
+      formula both work correctly against real glyph metrics in a real browser, not just the
+      mocked-measurer unit tests. Zero console/page errors in both checks. `npm run test`
+      (690/690 passing, +46 new: 19 `useChartTitle` + 11 `ChartTitle` + 16 pre-existing composable
+      cases from other in-flight work not part of this item), `npm run build:lib`
+      (`vue-tsc -p tsconfig.lib.json --noEmit` clean), `npm run build` (`vue-tsc -b` clean) all
+      pass with no type errors.
+
+      Exported `useChartTitle.ts`'s `computeChartArea`/`computeTitlePosition`/
+      `computeTitleRotation`/`TitleOrient`/`TitleAlign` types are NOT yet added to `src/index.ts`'s
+      public exports (unlike `useLegend.ts`'s precedent) - deliberately: they're `ChartTitle.vue`'s
+      own internal positioning helpers, not a reusable public API surface any other component or a
+      consuming app would import directly (no other widget composes a "title" the way, say, a
+      consuming app might compose `computeLegendLayout()` for a custom legend). `measureTextSize`
+      in `tooltipMeasure.ts` likewise stays unexported at the package level, matching
+      `measureTextWidth`'s own existing precedent.
+
+## Phase I — Gradient/pattern SVG defs-registry rendering pipeline (closes Phase H's scope boundary)
+
+Phase H (above) ported `gradientTheme`/`patternTheme`'s raw token STRINGS faithfully but explicitly
+left unimplemented the parser + SVG-`<defs>`-registry pipeline that turns `"linear(top) #c1,0.9
+#c2"` / `"pattern-jennifer-NN"` into a real `url(#id)` fill - meaning `theme="gradient"`/
+`theme="pattern"` rendered solid black (invalid raw string in an SVG `fill` attribute). This phase
+implements that pipeline in full, via TDD, for the `ChartBase.vue`-composing chart family.
+
+### The real algorithm - hand-traced from source, with two corrections to the initial writeup
+
+The parser (`ColorUtil.parseGradient`/`parseAttr`/`parseStop`) lives in the `jui-core`/`jui-graph`
+dependency jui-chart bundles, not in jui-chart's own `src/`. Hand-traced from **jui-core's own
+unminified `src/util/color.js:45,381-490`** (not just the compiled `dist/jui-chart.js`, to rule out
+minification artifacts) and cross-checked against `jui-graph/src/base/builder.js:286-390` for the
+`createColor()`/`createGradient()`/`createPattern()` dispatcher. This surfaced two real behaviors
+the task's own initial paraphrase got wrong, both confirmed by independently reading TWO separate
+unminified source copies (`jui-core` and `jui-graph`) that agree byte-for-byte:
+
+1. **`parseStop`'s boundary-default/gap-interpolation second pass is effectively dead code /
+   crash-prone, not a working interpolator.** Each stop is built as `{type:"stop", attr:{offset,
+   "stop-color",...}}` - the actual offset (when given) lives at `stop.attr.offset`. But the
+   second pass that's supposed to default the first/last stop's offset and interpolate interior
+   gaps reads/writes a **top-level** `stop.offset` field that is NEVER the same as `stop.attr.offset`
+   and is never synced with it anywhere. Consequence, hand-traced and locked in by
+   `colorParser.spec.ts`: (a) the "first stop → 0 / last stop → 1" default writes never reach the
+   rendered `<stop offset>` attribute (harmless for a missing FIRST offset only, since SVG itself
+   defaults a missing `offset` to `0`); (b) gap interpolation only ever triggers between the first
+   interior index and the NEXT index regardless of that index's real `attr.offset`, which means a
+   3-stop gradient with only the middle stop's offset explicit (`"linear(right) #fff,50%
+   yellow,black"`, jui-core's OWN doc-comment example) does NOT get interpolated at all (locked in
+   by a test), and a 4+-stop gradient with an un-offset interior run **throws**
+   (`stops[end].offset.indexOf` reads a property of `undefined` - also locked in by a test). Every
+   real gradient token this port ships is 1- or 2-stop, so the throw path is never hit by anything
+   shipped; `colorParser.ts` implements this byte-faithfully (including the crash), per this
+   project's "preserve quirks, don't silently fix" discipline, since "spot-check the dist file
+   yourself" is exactly what surfaced it.
+2. **Upstream's own id-numbering (`"gradient-" + _index`) is a real, confirmed, unrelated bug - NOT
+   reproduced.** `_index` (`jui-graph/src/base/builder.js:39,575`, Korean comment `index는 차트의
+   생성 순서` = "index is the chart's creation order") is set ONCE per chart, to that chart's
+   page-wide creation order (`_index = this.index = JUI.size()`), and is **never incremented
+   again** anywhere in the file. That means every distinct gradient resolved within ONE real
+   upstream chart instance gets the exact same SVG `id` (duplicate ids in `<defs>`), so every
+   `url(#id)` reference in that chart resolves to whichever element the browser picks for that
+   duplicate id - i.e. upstream's real "cycle through 19 different gradients" feature likely never
+   actually worked; every gradient-filled element in a chart probably rendered as the SAME single
+   gradient. Reproducing this would defeat the entire point of this phase and directly contradicts
+   this port's own required "two chart instances get independently-numbered ids" scoping (see
+   `useColorResolver()`'s tests), so `useColorResolver.ts` implements a real, per-chart
+   auto-incrementing `gradient-0`/`gradient-1`/... counter instead - a deliberate, documented
+   deviation, not an oversight.
+
+A third, smaller deviation, already anticipated by the task brief rather than independently found:
+upstream's `createPattern()` splits `"pattern-jennifer-01"` on `"-"`, pops `"01"` off as a method
+key, and looks the REMAINING prefix (`"pattern-jennifer"` → `"pattern.jennifer"`) up as a registry
+path `jui.include("chart.pattern.jennifer")` - which does not match the actually-registered
+`"chart.pattern.classic"` module name (confirmed via `include()`'s plain exact-string lookup, no
+aliasing). This is presumably ALSO a genuine upstream bug (meaning `theme="pattern"` likely never
+resolved either, upstream) - not reproduced, since there's only one pattern source in this port's
+scope; `resolvePattern()` indexes directly into the ported `patternClassic` data by the trailing
+method key.
+
+### Files
+
+- **`src/composables/colorParser.ts`** (new) - `parseGradient`/`parseAttr`/`parseStop`, byte-
+  faithful per the above. `colorParser.spec.ts`: 15 tests, hand-traced fixtures including
+  `"linear(top) #fff,#000"`, the 3-stop `"linear(right) #fff,50% yellow,black"` no-interpolation
+  case, `"radial(50%,50%,50%,50,50)"`, the empty-stop-string quirk (`"".split(" ")` → `[""]`,
+  length 1 not 0), and the 4-stop throw.
+- **`src/composables/patternClassic.ts`** (new) - the 12 `pattern/classic.js` `<pattern>` defs
+  (base64 PNG textures), ported verbatim; all 12 payloads diffed programmatically byte-for-byte
+  against the source file (`node` script comparing regex-extracted base64 strings), not just
+  visually spot-checked. `patternClassic.spec.ts`: 3 tests (key completeness, shape, one full
+  base64 spot-check).
+- **`src/composables/useColorResolver.ts`** (new) - the `createColor()`/`createGradient()`/
+  `createPattern()` equivalent: one instance = one chart's hash-dedup caches (gradient dedup keyed
+  by the raw string, matching upstream's `hashKey`; pattern dedup keyed by the resolved id, per
+  this port's own prefix-lookup deviation above) + an auto-incrementing per-chart id counter + a
+  reactive `defs: Ref<ColorDefsEntry[]>` list. `useColorResolver.spec.ts`: 9 tests covering plain-
+  color passthrough, `undefined`/`null` → `"none"`, gradient resolution + sequential ids, exact-
+  string dedup, pattern resolution + dedup, and - the scoping requirement - two independent
+  resolver instances numbering `gradient-0` independently (not off a shared/global counter).
+- **`src/components/SvgDefNode.vue`** (new) - a generic recursive `{type, attr, children}` → real
+  SVG element renderer (mirrors upstream's own `SVGUtil.createObject`), used only to render a
+  resolver's registered defs.
+- **`useTheme.ts`** - `useTheme(name, resolver?)` gains an optional second param. `color(index)`
+  and `theme(key)` (for any key whose name contains `"Color"`, matching upstream's own
+  `chart.theme()` dispatch - `key.indexOf("Color") > -1 && _theme[key] != null`,
+  `dist/jui-chart.js:12337`) route through `resolver.resolve()` when given, else fall back to the
+  pre-existing raw-passthrough (graceful degradation for `useTheme(name)` called with no resolver,
+  e.g. any unit test, or a component not yet wired into this pipeline). Header doc comment rewritten
+  to describe the implemented pipeline instead of the old scope-boundary framing.
+
+### Architecture: why NOT provide/inject (empirically verified, not assumed)
+
+The task's suggested shape was `ChartBase.vue` creates+provides a resolver, and `useTheme()`
+`inject()`s it. This does NOT work for this codebase's actual component tree, and was verified
+empirically (not just reasoned about) with a throwaway Vue+`@vue/test-utils` probe before writing
+any real code: a component that both provides a key AND renders `<slot/>` does not let (a) its own
+`inject()` of that same key, (b) a PARENT component's `inject()`, or (c) slot content defined by
+that parent (even though it's rendered "inside" the child) see the provided value - all three come
+back `null`. This matters here because every chart-type component (`BarChart.vue` etc.) is the
+**parent** of `ChartBase.vue` (it renders `<ChartBase><template #default>...marks...</ChartBase>`),
+and that same chart-type component's OWN `useTheme()` call (used to color its own series marks) is
+what most needs a resolver - `inject()` can only ever see ancestors, and `ChartBase` is a
+descendant of `BarChart`, not an ancestor, so nothing provided inside `ChartBase` could ever reach
+it.
+
+**Actual architecture used**: each top-level chart-type component creates its OWN
+`useColorResolver()` instance (one per component instance = one per chart, satisfying the per-
+instance-scoping requirement), passes it as the second arg to its own `useTheme()` call, AND hands
+the same instance down to `<ChartBase :color-resolver="colorResolver">` as a plain prop.
+`ChartBase.vue` uses `props.colorResolver` when given (falling back to its own internal
+`useColorResolver()` instance for a bare/standalone `<ChartBase>` usage or test), passes it to its
+OWN `useTheme()` call too (for consistency, though none of `ChartBase`'s own theme keys are ever
+gradient-valued in practice), and renders `<defs><SvgDefNode v-for="entry in defs" .../></defs>`
+inside its `<svg>` root from that SAME resolver's `defs` list - so a chart-type component's series-
+mark colors and `ChartBase`'s rendered defs share one hash-dedup cache and one id counter, backed
+by plain prop-passing rather than provide/inject.
+
+**A real render-order subtlety, also verified rather than assumed**: `<ChartBase>`'s `<defs>` sits
+earlier in its own template than its `<slot/>` (the chart-type component's marks). On the very
+first synchronous render, `<defs>` evaluates (reading the still-empty `defs` ref) BEFORE the slot's
+marks have had a chance to call `color(i)`/populate it - so the very first render's `<defs>` is
+empty. Vue's reactivity then schedules a re-render of `ChartBase` once `defs.value` changes
+(standard cross-component reactivity through the shared `Ref`), which resolves before the next
+paint - confirmed both via `await nextTick()` in `BarChart.gradient.spec.ts`'s component tests and
+via the real-browser Playwright check below (zero flash-of-black observed, defs present by the
+time the page settles).
+
+### Scope: what's wired, what isn't (deliberate, not silent)
+
+**Wired** (17 `ChartBase.vue`-composing components, each: `useColorResolver()` created + passed to
+its own `useTheme()` call + passed to `<ChartBase :color-resolver>`): `BarChart`, `LineChart`,
+`AreaChart`, `BubbleChart`, `CandlestickChart`, `Column3DChart`, `Line3DChart`, `FocusChart`,
+`HeatmapChart`, `EqualizerChart` (the SVG one, not `EqualizerColumnChart`), `SelectBoxChart`,
+`PinChart`, `ScatterChart`, `RateBarChart`, `RangeBarChart`, `HeatmapScatterChart`,
+`RangeAreaChart`. `ChartBase.vue` itself is the 18th file touched.
+
+**Not wired, deliberate follow-up** (matches this project's established "confirmed real, too large
+for this task" boundary-flagging convention): components with their OWN standalone `<svg>` root
+instead of composing `<ChartBase>` - `PieChart`/`DonutChart`/`TreemapChart`/`FlameChart`/
+`TimelineChart`/`PyramidChart`/`ArcEqualizerChart`/`TopologyChart`/etc. - still call `useTheme(name)`
+with no resolver, so `theme="gradient"`/`theme="pattern"` on those still renders the pre-existing
+raw-string/black-fill behavior. Each would need its own `useColorResolver()` + its own `<defs>` in
+its own `<svg>` root, following the exact pattern `ChartBase.vue` now uses - same shape, just not
+done here, to keep this phase's surface area (and regression-testing burden) bounded to what the
+task's own acceptance criteria (the `/bar` demo) actually exercises.
+
+**Out of scope entirely, not deferred**: canvas-backed brushes (`ChartCanvasBase.vue`-composing
+components, e.g. `EqualizerColumnChart.vue`) - a canvas `fillStyle` cannot consume an SVG `url(#id)`
+reference at all; that would need a wholly separate `CanvasGradient`-based implementation, unrelated
+to this SVG-defs pipeline.
+
+### TDD process
+
+Red→green throughout, in dependency order: `colorParser.spec.ts` (15 tests) written first against
+hand-traced/independently-verified expected outputs, confirmed failing on the missing module, then
+`colorParser.ts` implemented until green. Same for `patternClassic.spec.ts` (3 tests) →
+`patternClassic.ts`, `useColorResolver.spec.ts` (9 tests) → `useColorResolver.ts`, and 8 new cases
+appended to the pre-existing `useTheme.spec.ts` (confirmed 4 of 8 red on the resolver-routing
+behavior before `useTheme.ts` was updated - the other 4 already passed trivially, since they assert
+the no-resolver-given fallback / non-Color-key / null-value paths that don't require any new
+behavior). Component-level proof last: `BarChart.gradient.spec.ts` (4 tests) mounts a real
+`<BarChart theme="gradient"|"pattern"|"classic">` and asserts on the actual rendered DOM - real
+`<linearGradient>`/`<pattern>` defs exist, a bar's `fill` is a `url(#...)` reference (not the raw
+string), same-color bars dedup to one def, and `theme="classic"` is a byte-for-byte-unchanged
+baseline (plain hex fills, zero defs rendered).
+
+### Verification
+
+- `npm run test`: 53/53 files, **729/729 passing** (690 baseline + 39 new: 15 + 3 + 9 + 8 + 4).
+  Zero regressions in any of the 690 pre-existing tests, confirmed by re-running the full suite
+  after every file change, not just once at the end.
+- `vue-tsc --noEmit -p tsconfig.app.json`: clean. Required two small type additions beyond the
+  hand-traced algorithm itself: an optional `id?: string` field on `LinearGradientAttr`/
+  `RadialGradientAttr` (upstream's `parseAttr` never sets one - `useColorResolver.ts`'s `resolve()`
+  fills it in when registering, matching `createGradient()`'s own `obj.attr.id = id`), and a
+  `typeof parsed === 'string'` check (rather than `parsed === raw`) so TS can narrow
+  `parseGradient()`'s return type down to `GradientDescriptor` for the registration branch.
+- `npm run build:lib` and `npm run build`: both clean, no new warnings. `useColorResolver.ts`/
+  `colorParser.ts`/`patternClassic.ts` added to `src/index.ts`'s public `export *` surface
+  (matching every other composable); `SvgDefNode.vue` exported alongside `ChartBase.vue` (an
+  internal rendering helper, but consistent with every other component being individually
+  exported).
+- **Playwright, before/after**: dev server (`npm run dev`) driven via a local Playwright script
+  (no `chromium-cli` binary available in this environment) against `/bar`'s existing
+  `theme="gradient"`/`theme="pattern"` demo section (`BarPage.vue`, added by the Phase H iteration
+  specifically to make this gap visible). **Before** (Phase H's own screenshot, referenced above):
+  bars render with solid black fill. **After** (this phase): `document.querySelector` inspection of
+  the live DOM confirms real `<defs>` with `<linearGradient id="gradient-0">`/`<linearGradient
+  id="gradient-1">` (each with two real `<stop>` children, e.g. `stop-color="#9694e0"` and
+  `offset="0.9" stop-color="#7977C2"`) for the gradient-theme chart, and real `<pattern
+  id="pattern-jennifer-01">`/`<pattern id="pattern-jennifer-02">` (each with an `<image
+  xlink:href="data:image/png;base64,...">` child) for the pattern-theme chart; every rendered bar's
+  `fill` attribute is a `url(#gradient-N)` or `url(#pattern-jennifer-NN)` reference, never the raw
+  string. Screenshots confirm this visually too: the gradient-theme bars render in real purple/
+  blue/gold tones (not black), and the pattern-theme bar renders a visibly tiled dot-texture fill.
+  **Zero console/page errors** in either check. `BarPage.vue`'s demo section text updated to
+  describe the implemented pipeline instead of the old "this port has not ported that resolver"
+  wording.
+
+### `useTheme.ts` header doc comment
+
+Rewritten (see that file) from "this port ... does NOT implement that parser + SVG-defs-registry
+rendering pipeline" to a full description of the now-implemented pipeline, both documented
+deviations from upstream's exact dispatch behavior, and an explicit "still out of scope for this
+pass" section naming exactly which components remain unwired and why (mirroring this section).

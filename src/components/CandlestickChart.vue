@@ -73,6 +73,7 @@
 import { computed, ref, toRef } from 'vue'
 import { useChartLayout } from '../composables/useChartLayout'
 import { candleBodyGeometry } from '../composables/useSeries'
+import { useColorResolver } from '../composables/useColorResolver'
 import { useTheme } from '../composables/useTheme'
 import ChartBase from './ChartBase.vue'
 import ChartTitle from './ChartTitle.vue'
@@ -148,7 +149,8 @@ const dataRef = toRef(props, 'data')
 const { axisX, axisY } = useChartLayout(dataRef, toRef(props, 'axisX'), toRef(props, 'axisY'), toRef(props, 'width'), toRef(props, 'height'), toRef(props, 'padding'))
 
 const themeName = toRef(props, 'theme')
-const { theme } = useTheme(themeName)
+const colorResolver = useColorResolver()
+const { theme } = useTheme(themeName, colorResolver)
 
 interface Candle {
   x: number
@@ -226,7 +228,7 @@ const hover = computed<Candle | null>(() => (hoverIndex.value != null ? (candles
 </script>
 
 <template>
-  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid">
+  <ChartBase :data="props.data" :axis-x="props.axisX" :axis-y="props.axisY" :width="props.width" :height="props.height" :theme="props.theme" :padding="props.padding" :show-grid="props.showGrid" :color-resolver="colorResolver">
     <g>
       <template v-for="(candle, i) in candles" :key="i">
         <line :x1="candle.wickX" :y1="candle.wickY1" :x2="candle.wickX" :y2="candle.wickY2" :stroke="candle.borderColor" stroke-width="1" />
@@ -249,7 +251,7 @@ const hover = computed<Candle | null>(() => (hoverIndex.value != null ? (candles
     </g>
 
     <template #overlay>
-      <ChartTitle v-if="props.title" :text="props.title" :x="props.width / 2" :y="16" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
+      <ChartTitle v-if="props.title" :text="props.title" :width="props.width" :height="props.height" :color="theme('titleFontColor')" :size="theme('titleFontSize')" :weight="theme('titleFontWeight')" />
       <g v-if="props.showTooltip && hover">
         <ChartTooltip
           visible

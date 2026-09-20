@@ -26,7 +26,18 @@
  * interpolation is generically useful - matches this port's established pattern of investing in
  * shared infrastructure (`useStackedSeries`, `useRangeSeries`, `OrdinalScale.invert()`) whenever a
  * later item is likely to reuse it, not just the item that first needed it.
+ *
+ * **Phase G re-evaluation (post jui-graph-ts)**: this feature is still not a port of anything (see
+ * above - the original never had it), but its per-segment interpolation arithmetic now delegates
+ * to jui-graph-ts's `colorUtil.scale()` (a real port of `util/color.js`'s own, otherwise-dead,
+ * interpolation formula) via the `MultiStopColorScale` class below, rather than this file's own
+ * previously-independent `Math.round`-based formula. The class itself stays here, not in
+ * jui-graph-ts - see its own doc comment for why. `rgbToHex`/`interpolateColor` were removed as
+ * dead code once nothing called them directly anymore; `hexToRgb` remains (still used by
+ * `useActiveBubble.ts`'s `hexToRgba`).
  */
+
+import { colorUtil } from 'jui-graph-ts'
 
 /** Parses a `#rgb` or `#rrggbb` hex color string (leading `#` optional) into 0-255 channel values. */
 export function hexToRgb(hex: string): [number, number, number] {
@@ -41,23 +52,52 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255]
 }
 
-/** Inverse of `hexToRgb` - each channel is rounded and clamped to `[0, 255]` before formatting. */
-export function rgbToHex(r: number, g: number, b: number): string {
-  const channel = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
-  return `#${channel(r)}${channel(g)}${channel(b)}`
-}
-
 /**
- * Linearly interpolates each RGB channel between two hex colors. `t` is clamped to `[0, 1]` -
- * an out-of-range `t` returns the nearest endpoint color rather than extrapolating outside the
- * 0-255 channel range (a genuine, deliberate difference from this port's `LinearScale`, which
- * extrapolates by default - clamping is the only sensible behavior for a color channel).
+ * Composes jui-graph-ts's real `colorUtil.scale()` (a faithful port of `juijs-graph`'s
+ * `util/color.js` - a "has-a", not "is-a", relationship: this class is NOT part of the ported
+ * engine itself, since the original never had a multi-stop/continuous-domain gradient primitive -
+ * see `createColorScale`'s own doc comment for the full derivation of why this feature exists at
+ * all. Kept in jui-chart-vue (not promoted into jui-graph-ts) because jui-chart-vue is currently
+ * its only consumer - jui-graph-ts stays a byte-faithful, 1:1-with-source port with no invented
+ * classes; if a second jui-*-vue project needs this, promote it then, not speculatively now.
+ *
+ * Two real, deliberate behavior changes from this port's prior `interpolateColor`: (1) each
+ * segment's interpolation now runs through `colorUtil.scale()`'s real formula, which truncates
+ * (`parseInt(String(...))`, matching the original engine's own quirk) rather than rounds
+ * (`Math.round`, this port's own prior choice) - verified via Node: ~50% of interpolation positions
+ * differ by ±1 per channel between the two; (2) `colorUtil.scale()`'s own `format()` helper emits
+ * UPPERCASE hex (`.toUpperCase()`, also the original engine's real behavior) - normalized back to
+ * lowercase in `value()` below to match this port's own established lowercase-hex convention used
+ * everywhere else (`hexToRgb`, theme color tokens, etc.) - a deliberate formatting choice this
+ * class owns, not a pass-through of jui-graph-ts's raw casing. See `useColorScale.spec.ts` for the
+ * updated hand-traced expectations.
  */
-export function interpolateColor(from: string, to: string, t: number): string {
-  const clampedT = Math.max(0, Math.min(1, t))
-  const [r1, g1, b1] = hexToRgb(from)
-  const [r2, g2, b2] = hexToRgb(to)
-  return rgbToHex(r1 + (r2 - r1) * clampedT, g1 + (g2 - g1) * clampedT, b1 + (b2 - b1) * clampedT)
+class MultiStopColorScale {
+  private readonly segments: colorUtil.ColorScale[]
+  private min = 0
+  private max = 1
+
+  constructor(colors: string[]) {
+    this.segments = []
+    for (let i = 0; i < colors.length - 1; i++) {
+      this.segments.push(colorUtil.scale().domain(colors[i], colors[i + 1]))
+    }
+  }
+
+  domain(min: number, max: number): this {
+    this.min = min
+    this.max = max
+    return this
+  }
+
+  value(x: number): string {
+    const span = this.max - this.min
+    const t = span === 0 ? 0 : Math.max(0, Math.min(1, (x - this.min) / span))
+    const scaledT = t * this.segments.length
+    const segmentIndex = Math.min(Math.floor(scaledT), this.segments.length - 1)
+    const localT = scaledT - segmentIndex
+    return (this.segments[segmentIndex](localT, 'hex') as string).toLowerCase()
+  }
 }
 
 /**
@@ -71,15 +111,6 @@ export function createColorScale(domain: [number, number], colors: string[]): (v
   if (colors.length === 0) return () => '#000000'
   if (colors.length === 1) return () => colors[0]
 
-  const [min, max] = domain
-  const span = max - min
-
-  return (value: number) => {
-    const t = span === 0 ? 0 : Math.max(0, Math.min(1, (value - min) / span))
-    const segments = colors.length - 1
-    const scaledT = t * segments
-    const segmentIndex = Math.min(Math.floor(scaledT), segments - 1)
-    const localT = scaledT - segmentIndex
-    return interpolateColor(colors[segmentIndex], colors[segmentIndex + 1], localT)
-  }
+  const scale = new MultiStopColorScale(colors).domain(domain[0], domain[1])
+  return (value: number) => scale.value(value)
 }
