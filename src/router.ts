@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 export interface ExampleRoute {
   path: string
@@ -54,6 +54,6 @@ export const exampleRoutes: ExampleRoute[] = [
 ]
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [{ path: '/', redirect: '/bar' }, ...exampleRoutes.map((r) => ({ path: r.path, name: r.name, component: r.component }))],
 })
