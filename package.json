@@ -1,79 +1,83 @@
 {
-  "name": "jui-chart-vue",
-  "private": true,
-  "version": "0.1.0",
-  "description": "A Vue 3 chart library: line, area, bar/column, pie, donut. A from-scratch Vue port of jui-chart's (juijs-graph) core rendering engine.",
-  "type": "module",
-  "license": "MIT",
-  "author": "search5",
+  "name": "juijs-chart",
+  "version": "2.6.12",
+  "sideEffects": false,
+  "description": "SVG-based JUI chart that can be used in the browser and Node.js. Support many types of charts. (Dashboard, Map, Topology, Full 3D)",
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "webpack-dev-server --env dev",
+    "dist": "webpack --env prod"
+  },
+  "main": "src/main.js",
+  "files": [
+    "bundles",
+    "dist",
+    "examples",
+    "images",
+    "src",
+    "test",
+    "package.json",
+    "README.md",
+    "webpack.config.js",
+    "webpack.dev.js",
+    "webpack.prod.js"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/juijs-vue/jui-chart-vue.git"
-  },
-  "homepage": "https://github.com/juijs-vue/jui-chart-vue#readme",
-  "bugs": {
-    "url": "https://github.com/juijs-vue/jui-chart-vue/issues"
+    "url": "https://github.com/juijs/jui-chart.git"
   },
   "keywords": [
-    "vue",
-    "vue3",
-    "chart",
-    "charts",
-    "svg",
-    "data-visualization",
-    "typescript"
+    "HTML5",
+    "NodeJS",
+    "CSS",
+    "JS",
+    "JavaScript",
+    "SVG",
+    "Chart",
+    "Framework",
+    "Web development",
+    "free",
+    "MIT"
   ],
-  "main": "./dist-lib/jui-chart-vue.cjs.js",
-  "module": "./dist-lib/jui-chart-vue.es.js",
-  "types": "./dist-lib/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist-lib/index.d.ts",
-      "import": "./dist-lib/jui-chart-vue.es.js",
-      "require": "./dist-lib/jui-chart-vue.cjs.js"
+  "author": "seogi1004",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/juijs/jui-chart/issues"
+  },
+  "categories": [
+    "Frameworks",
+    "UI"
+  ],
+  "maintainers": [
+    {
+      "name": "Alvin",
+      "email": "alvin@jennifersoft.com"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Jayden",
+      "email": "jayden@jennifersoft.com"
     },
-    "./style.css": "./dist-lib/style.css"
-  },
-  "files": [
-    "dist-lib"
+    {
+      "name": "Yoha",
+      "email": "yoha@jennifersoft.com"
+    }
   ],
-  "sideEffects": [
-    "**/*.css"
-  ],
-  "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "build:lib": "vue-tsc -p tsconfig.lib.json --noEmit && vite build -c vite.lib.config.ts"
-  },
-  "peerDependencies": {
-    "vue": "^3.4.0"
-  },
-  "_dependencyNotes": {
-    "juijs-graph": "Deliberate, PERMANENT exception to this project's otherwise strict zero-runtime-dependency-on-jui-chart/juijs-graph rule (Phases A-D reimplemented every SVG-engine file from scratch instead) - see PORT_STATUS.md's Phase E policy note. Applies ONLY to files that are generic, non-chart-domain utility code (e.g. kinetic.js's standalone physics object, imported as-is + typed via src/vendor/kinetic.d.ts rather than hand-ported) - real chart/axis/rendering-engine logic is still planned for an eventual genuine Vue/TS port and never gets this treatment. Pinned to the exact version jui-chart/package.json itself uses as its own juijs-graph devDependency.",
-    "jui-graph-ts": "Sibling project at /home/search5/cl/jui-graph-ts - a complete, from-scratch TypeScript (real ES classes, no runtime registry) port of juijs-graph, published separately to npm. Linked via `file:` since it isn't on the npm registry yet. See PORT_STATUS.md's Phase G section for the composable-by-composable migration mapping and rationale - most of jui-chart-vue's composables stay hand-ported (either jui-chart's own leaf logic, out of jui-graph-ts's engine-only scope, or deliberately-independent implementations); only mathUtil.ts, useScale.ts's linear/ordinal scales, and usePolygon3d.ts's rotate/cube math migrate to real dependencies on this package.",
-    "treemap-squared (imranghory/treemap-squared, MIT, 2012)": "NOT listed under \"dependencies\" below because it was never published to npm (confirmed via `npm view treemap-squared` -> 404, GitHub-only) - there is no installable package to reference, so it is vendored as a raw file instead, same as src/vendor/kinetic.js (which similarly has no matching npm dependency entry since it lives in jui-chart's own source tree, not the installable juijs-graph package). PORT_STATUS.md's Phase F audit traced useTreemap.ts's squarify core (Container/normalize/squarify/improvesRatio/calculateRatio/flattenTreemap/sumMultidimensionalArray, plus the exact \"the pseudocode in the Bruls paper has the direction of the comparison wrong\" bugfix comment) to this specific library - jui-chart's own treemap.js is itself a restructured adaptation of it, not original code. The real upstream source is vendored near-unmodified at src/vendor/treemap-squared.js (see that file's own header comment for the full provenance/license text and the one line added for ES-module compatibility) and typed via src/vendor/treemap-squared.d.ts; src/composables/useTreemap.ts's squarifyRects() is a thin shim delegating to it, verified byte-identical (exact spec fixtures) / sub-1e-9-relative-error (random fuzz + non-integer inputs) against the prior hand-port before the swap - see src/vendor/treemap-squared.spec.ts and useTreemap.ts's squarifyRects() doc comment."
-  },
   "dependencies": {
-    "juijs-graph": "1.1.4",
-    "jui-graph-ts": "file:../jui-graph-ts"
+    "juijs-graph": "1.1.4"
   },
   "devDependencies": {
-    "@types/node": "^24.13.3",
-    "@vitejs/plugin-vue": "^6.0.8",
-    "@vitest/coverage-v8": "^5.0.1",
-    "@vue/test-utils": "^2.5.0",
-    "@vue/tsconfig": "^0.9.1",
-    "jsdom": "^30.0.1",
-    "typescript": "~6.0.2",
-    "vite": "^8.3.0",
-    "vite-plugin-dts": "^5.1.0",
-    "vitest": "^5.0.1",
-    "vue": "^3.5.42",
-    "vue-router": "^4.6.4",
-    "vue-tsc": "^3.3.11"
+    "babel": "^6.23.0",
+    "babel-core": "^6.26.3",
+    "babel-loader": "^7.1.5",
+    "babel-preset-env": "^1.7.0",
+    "compression-webpack-plugin": "^1.1.12",
+    "html-webpack-plugin": "^3.2.0",
+    "uglifyjs-webpack-plugin": "^1.3.0",
+    "webpack": "^4.41.2",
+    "webpack-bundle-analyzer": "^3.3.2",
+    "webpack-cli": "^3.3.10",
+    "webpack-dev-server": "^3.9.0"
   }
 }
