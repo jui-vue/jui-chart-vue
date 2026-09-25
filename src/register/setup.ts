@@ -83,4 +83,19 @@ import './widget/topologyctrl'
 import './widget/zoom'
 import './widget/zoomscroll'
 
+// Phase 4: canvas/polygon (3D + canvas-rendered) brush/widget family, plus the site-only
+// "pastel" theme
+import './brush/canvas/activebubble'
+import './brush/canvas/activecircle'
+import './brush/canvas/bubblecloud'
+import './brush/canvas/dot3d'
+import './brush/canvas/equalizercolumn'
+import './brush/polygon/column3d'
+import './brush/polygon/line3d'
+
+import './widget/canvas/picker'
+import './widget/polygon/rotate3d'
+
+import './theme/pastel'
+
 export { GRID_TYPES } from './gridTypes'
