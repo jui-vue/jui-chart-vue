@@ -1,0 +1,57 @@
+// Port of legacy `src/brush/canvas/scatter3d.js` ("chart.brush.canvas.scatter3d", extend:
+// "chart.brush.canvas.core") - a 3D canvas scatter brush: each `(dataIndex, targetIndex)` cell is
+// a single perspective-scaled, radial-gradient-filled circle, positioned via a single-vertex
+// `PointPolygon` (same primitive `dot3d.ts`'s dot mode / `line3d.ts`'s ribbon corners / this
+// project's own SVG `polygon.scatter3d` already use) and the inherited `addPolygon()`
+// (`CanvasCoreBrush` - rotates/z-sorts/drains via `drawAfter()`).
+import { registerBrush, CanvasCoreBrush, PointPolygon, colorUtil, mathUtil } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+
+/** Own `chart.brush.canvas.scatter3d.setup()` fields - see legacy `canvas/scatter3d.js`. */
+export const CANVAS_SCATTER3D_BRUSH_OWN_DEFAULTS = {
+  size: 7,
+}
+
+export class CanvasScatter3DBrush extends CanvasCoreBrush {
+  private createScatter(data: BrushData, target: string, dataIndex: number, targetIndex: number): void {
+    const color = this.color(dataIndex, targetIndex)
+    const r = ((this.brush as Record<string, unknown>).size as number) / 2
+    const x = (this.axis.x as BrushAxisScale)(dataIndex)
+    const y = (this.axis.y as BrushAxisScale)(data[target])
+    const z = (this.axis.z as BrushAxisScale)(dataIndex)
+
+    this.addPolygon(new PointPolygon(x, y, z), (p) => {
+      const tx = p.vectors![0].x
+      const ty = p.vectors![0].y
+      const tr = r * mathUtil.scaleValue(z, 0, this.axis.depth as number, 1, p.perspective as number)
+      const tc = colorUtil.lighten(color, this.chart.theme('polygonScatterRadialOpacity') as number)
+
+      const canvas = this.canvas as CanvasRenderingContext2D
+      const grd = canvas.createRadialGradient(tx, ty, tr / 2, tx, ty, tr)
+      grd.addColorStop(0, color)
+      grd.addColorStop(1, tc)
+
+      canvas.beginPath()
+      canvas.arc(tx, ty, tr, 0, 2 * Math.PI, false)
+      canvas.fillStyle = grd
+      canvas.fill()
+    })
+  }
+
+  draw = (): void => {
+    const datas = this.listData() as BrushData[]
+    const targets = (this.brush as Record<string, unknown>).target as string[]
+
+    for (let i = 0; i < datas.length; i++) {
+      for (let j = 0; j < targets.length; j++) {
+        this.createScatter(datas[i], targets[j], i, j)
+      }
+    }
+  }
+
+  static setup(): Record<string, unknown> {
+    return CANVAS_SCATTER3D_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('canvas.scatter3d', CanvasScatter3DBrush)
