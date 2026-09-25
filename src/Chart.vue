@@ -77,6 +77,15 @@ const props = defineProps<{
    * see `register/icon/classic.ts`'s header comment for the full history.
    */
   icon?: { type: string; path?: string | string[] | null }
+  /**
+   * Forwarded to `Builder`'s own `canvas` option (`Builder.setup()`'s default: `false`). Required
+   * for any `chart.brush.canvas.*`/`chart.widget.canvas.*`-family type (`canvas.activebubble`,
+   * `canvas.picker`, etc.) to actually get a real `<canvas>` element/2D context wired onto
+   * `draw.canvas` - see `base/builder.ts`'s `init()`/`initCanvasElement()`. Without it, `Builder`
+   * never creates the `main`/`buffer`/`sub` canvases at all and any canvas-family brush/widget's
+   * `this.canvas` stays `null`.
+   */
+  canvas?: boolean
 }>()
 
 /** `import.meta.env.BASE_URL` (Vite's own configured `base`, `/` by default) rather than a bare
@@ -102,6 +111,7 @@ const assembledOptions = computed(() => ({
   style: props.style,
   render: props.render,
   icon: props.icon ?? { type: 'classic', path: DEFAULT_ICON_FONT_PATHS },
+  canvas: props.canvas,
 }))
 
 /**
