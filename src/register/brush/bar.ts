@@ -242,16 +242,16 @@ export class BarBrush extends CoreBrush {
     )
 
     root.each((_i: number, elem: any) => {
-      // Legacy checks `elem.is("util.svg.element.path")` here. `jui-graph-ts`'s own port of
-      // `Element.is()` (`util/svg/element.ts`) is a documented, preserved bug: it always throws
-      // `ReferenceError: jui is not defined` (the original engine's own `is()` references a bare,
-      // never-imported `jui` global too - a real, reachable crash in the true original whenever
-      // `drawAnimate()` actually runs, i.e. whenever a brush is configured with `animate: true`).
-      // An earlier version of this port used `typeof elem.join === 'function'` here instead - a
-      // WORKING duck-typed substitute (`join()` really is `PathElement`-specific) that silently
-      // fixed the crash rather than reproducing it. Reverted per explicit instruction: `animate:
-      // true` should fail here exactly the way it fails in the true original engine, not run a
-      // (subtly wrong-direction, once inherited into vertical `StackColumnBrush`/etc.) fallback.
+      // Legacy checks `elem.is("util.svg.element.path")` here. CORRECTION: an earlier pass
+      // mis-diagnosed `jui-graph-ts`'s own `Element.is()` (`util/svg/element.ts`) as a preserved
+      // "always throws `ReferenceError: jui is not defined`" bug and reverted this line away from
+      // a working `typeof elem.join === 'function'` duck-typed substitute back to a call that
+      // would crash - confirmed wrong by loading real `animate: true` demos
+      // (`overlap_bar`/`active_bar`/`overlap_column`/`active_column`/`dashboard4`) directly
+      // against the live legacy site: none of them throw. `Element.is()` is now a real,
+      // non-throwing registry-backed `instanceof` check (see its own doc comment in
+      // `util/svg/element.ts`), so this line is back to matching the real engine exactly, no
+      // substitute needed.
       if (elem.is('util.svg.element.path')) {
         const xy = (elem.data('translate') as string).split(',')
         const x = parseInt(xy[0])

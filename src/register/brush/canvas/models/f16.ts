@@ -7,8 +7,10 @@
 // registry `canvas/model3d.js` itself calls into (`jui.include("chart.polygon." + this.brush.model)`
 // - a dynamic per-model lookup this project's new `registerBrush`/`registerWidget`/`registerTheme`
 // trio has no equivalent for, and which this project's whole architecture deliberately does NOT
-// replicate - see `element.ts`'s/`math.ts`'s own "jui is not defined"/"niceFraction is not defined"
-// preserved-bug documentation for why). Ported here as a small LOCAL model registry instead (see
+// replicate as a GENERAL mechanism (jui-graph-ts's own `element.ts` does now carry one small,
+// narrowly-scoped self-registering lookup table - `elementModuleRegistry`, backing `Element.is()`
+// - but that's a fixed, closed set of 6 known `util.svg.element*` moduleIds, not an open dynamic
+// per-model registry like `jui.include(...)` here would need). Ported here as a small LOCAL model registry instead (see
 // `canvas/model3d.ts`'s own `registerPolygonModel()`/`getPolygonModel()`), entirely within this
 // project's own authority (no `jui-graph-ts` changes) - `F16Model extends PolygonCore` (the same
 // base class `PointPolygon`/`LinePolygon`/`CubePolygon` already extend), with `sources`/`faces` as

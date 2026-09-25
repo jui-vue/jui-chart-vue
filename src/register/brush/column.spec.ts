@@ -58,17 +58,19 @@ describe('column brush', () => {
     expect(path.getAttribute('stroke')).toBe('none')
   })
 
-  it('animate: true faithfully crashes with the real engine\'s own "jui is not defined" bug (see ' +
-    '`bar.spec.ts`\'s identical test for the full rationale)', () => {
-    expect(() =>
-      mount(Chart, {
-        props: {
-          width: 400,
-          height: 300,
-          axis: [{ x: { type: 'block', domain: ['A'] }, y: { type: 'range', domain: [0, 100] }, data: [{ name: 'A', value1: 30 }] }],
-          brush: [{ type: 'column', target: ['value1'], animate: true }],
-        },
-      }),
-    ).toThrow('jui is not defined')
+  it('animate: true renders real animation elements without throwing (see `bar.spec.ts`\'s identical test for the full CORRECTION rationale)', () => {
+    const wrapper = mount(Chart, {
+      props: {
+        width: 400,
+        height: 300,
+        axis: [{ x: { type: 'block', domain: ['A'] }, y: { type: 'range', domain: [0, 100] }, data: [{ name: 'A', value1: 30 }] }],
+        brush: [{ type: 'column', target: ['value1'], animate: true }],
+      },
+    })
+
+    const g = wrapper.element.querySelector('g.brush-column')
+    expect(g).not.toBeNull()
+    expect(g!.querySelectorAll('animate').length).toBeGreaterThan(0)
+    expect(g!.querySelectorAll('animateTransform').length).toBeGreaterThan(0)
   })
 })

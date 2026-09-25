@@ -58,17 +58,23 @@ describe('bar brush', () => {
     expect(paths.length).toBe(2)
   })
 
-  it('animate: true faithfully crashes with the real engine\'s own "jui is not defined" bug, ' +
-    'rather than silently running a working-but-unfaithful fallback animation', () => {
-    expect(() =>
-      mount(Chart, {
-        props: {
-          width: 400,
-          height: 300,
-          axis: [{ x: { type: 'range', domain: [0, 100] }, y: { type: 'block', domain: ['A'] }, data: [{ name: 'A', value1: 30 }] }],
-          brush: [{ type: 'bar', target: ['value1'], animate: true }],
-        },
-      }),
-    ).toThrow('jui is not defined')
+  it('animate: true renders real animation elements without throwing (CORRECTION: Element.is() genuinely works, matching the real engine)', () => {
+    // Previously asserted this as a faithful crash ("jui is not defined") - that was wrong. See
+    // `drawAnimate()`'s own comment above and `util/svg/element.ts`'s `Element.is()` doc comment
+    // in jui-graph-ts for the full correction (confirmed by loading real `animate: true` demos
+    // directly against the live legacy site - none of them throw).
+    const wrapper = mount(Chart, {
+      props: {
+        width: 400,
+        height: 300,
+        axis: [{ x: { type: 'range', domain: [0, 100] }, y: { type: 'block', domain: ['A'] }, data: [{ name: 'A', value1: 30 }] }],
+        brush: [{ type: 'bar', target: ['value1'], animate: true }],
+      },
+    })
+
+    const g = wrapper.element.querySelector('g.brush-bar')
+    expect(g).not.toBeNull()
+    expect(g!.querySelectorAll('animate').length).toBeGreaterThan(0)
+    expect(g!.querySelectorAll('animateTransform').length).toBeGreaterThan(0)
   })
 })

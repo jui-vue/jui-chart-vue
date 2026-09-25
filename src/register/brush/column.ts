@@ -104,9 +104,10 @@ export class ColumnBrush extends BarBrush {
     )
 
     root.each((_i: number, elem: any) => {
-      // See `bar.ts`'s `drawAnimate()` for why this calls the real (always-throwing, faithfully
-      // preserved) `elem.is(...)` rather than the working `typeof elem.join === 'function'`
-      // duck-type substitute an earlier version of this port used here.
+      // See `bar.ts`'s `drawAnimate()` for the full writeup: `Element.is()` was previously
+      // mis-diagnosed as a preserved "always throws" bug - it isn't (confirmed against the real
+      // legacy site's `animate: true` demos, none of which throw) - and is now a real,
+      // non-throwing registry-backed `instanceof` check, matching the real engine exactly.
       if (elem.is('util.svg.element.path')) {
         const xy = (elem.data('translate') as string).split(',')
         const x = parseInt(xy[0])
