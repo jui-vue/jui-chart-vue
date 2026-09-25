@@ -92,10 +92,18 @@ import './brush/canvas/dot3d'
 import './brush/canvas/equalizercolumn'
 import './brush/polygon/column3d'
 import './brush/polygon/line3d'
+import './brush/polygon/scatter3d'
 
 import './widget/canvas/picker'
 import './widget/polygon/rotate3d'
 
 import './theme/pastel'
+
+// Phase 5: further genuine porting gaps found by cross-checking real site demos against this
+// project's registered types (neither had ANY counterpart anywhere in this repo's copied legacy
+// source tree, despite being real, live code in the bundled site engine and used directly by real
+// site demos - see each file's own header comment for the exact provenance/cross-check).
+import './brush/splitline'
+import './brush/splitarea'
 
 export { GRID_TYPES } from './gridTypes'
