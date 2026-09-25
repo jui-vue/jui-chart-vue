@@ -5,3 +5,7 @@ node_modules/
 out/
 .idea/
 *.iml
+
+# Build output
+dist/
+dist-lib/

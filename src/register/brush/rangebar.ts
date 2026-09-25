@@ -1,0 +1,78 @@
+// Port of legacy `src/brush/rangebar.js` ("chart.brush.rangebar", extend: "chart.brush.core") -
+// extends `CoreBrush` DIRECTLY (confirmed from the legacy file's own `extend:` field), shares no
+// code with `BarBrush`. Each `brush.target` field holds a `[min, max]` 2-element array per row
+// (not a plain number, unlike every other brush in this batch) - renders one horizontal
+// range-span rect per target per row.
+import { CoreBrush, registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale } from 'jui-graph-ts'
+
+/** Own `chart.brush.rangebar.setup()` fields - see legacy `rangebar.js`. */
+export const RANGE_BAR_BRUSH_OWN_DEFAULTS = {
+  outerPadding: 2,
+  innerPadding: 1,
+}
+
+export class RangeBarBrush extends CoreBrush {
+  private g: any
+  private half_height = 0
+  private bar_height = 0
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+    const target = this.brush.target ?? []
+
+    this.g = this.chart.svg.group()
+
+    const height = (this.axis.y as BrushAxisScale).rangeBand!()
+    this.half_height = height - (brush.outerPadding as number) * 2
+    this.bar_height = (this.half_height - (target.length - 1) * (brush.innerPadding as number)) / target.length
+  }
+
+  draw = (): any => {
+    const brush = this.brush as Record<string, unknown>
+    const target = this.brush.target ?? []
+    const innerPadding = brush.innerPadding as number
+    const borderColor = this.chart.theme('barBorderColor')
+    const borderWidth = this.chart.theme('barBorderWidth')
+    const borderOpacity = this.chart.theme('barBorderOpacity')
+
+    this.eachData((data, i) => {
+      const row = data as Record<string, unknown>
+      const index = i as number
+      const group = this.chart.svg.group()
+      let startY = this.offset('y', index) - this.half_height / 2
+
+      for (let j = 0; j < target.length; j++) {
+        const value = row[target[j]] as [unknown, unknown]
+        const startX = (this.axis.x as BrushAxisScale)(value[1])
+        const zeroX = (this.axis.x as BrushAxisScale)(value[0])
+
+        const r = this.chart.svg.rect({
+          x: zeroX,
+          y: startY,
+          height: this.bar_height,
+          width: Math.abs(zeroX - startX),
+          fill: this.color(j),
+          stroke: borderColor,
+          'stroke-width': borderWidth,
+          'stroke-opacity': borderOpacity,
+        })
+
+        this.addEvent(r, index, j)
+        group.append(r)
+
+        startY += this.bar_height + innerPadding
+      }
+
+      this.g.append(group)
+    })
+
+    return this.g
+  }
+
+  static setup(): Record<string, unknown> {
+    return RANGE_BAR_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('rangebar', RangeBarBrush)

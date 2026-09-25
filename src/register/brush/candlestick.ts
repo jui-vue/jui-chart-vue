@@ -1,0 +1,96 @@
+// Port of legacy `src/brush/candlestick.js` ("chart.brush.candlestick", extend:
+// "chart.brush.core") - extends `CoreBrush` directly. No `static setup()` at all in the legacy
+// source (confirmed - the file declares zero options of its own), so this leaf's own `setup()`
+// returns `{}`, relying entirely on the (now-fixed) `defineOptions()` chain walk for `CoreBrush`/
+// `Draw`'s own defaults. Reads `high`/`low`/`open`/`close` fields directly via `getValue()`
+// (defaulting each to `0`) rather than a configured `target` array - unlike every axis-based brush
+// so far, `brush.target` is never referenced anywhere in this file.
+import { CoreBrush, registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+
+export class CandleStickBrush extends CoreBrush {
+  private g: any
+  private barWidth = 0
+  private barPadding = 0
+
+  drawBefore = (): void => {
+    this.g = this.chart.svg.group()
+    const width = (this.axis.x as BrushAxisScale).rangeBand!()
+    this.barWidth = width * 0.7
+    this.barPadding = this.barWidth / 2
+  }
+
+  draw = (): any => {
+    this.eachData((data, i) => {
+      const row = data as BrushData
+      const index = i as number
+      const startX = this.offset('x', index)
+
+      const high = this.getValue(row, 'high', 0) as number
+      const low = this.getValue(row, 'low', 0) as number
+      const open = this.getValue(row, 'open', 0) as number
+      const close = this.getValue(row, 'close', 0) as number
+
+      let l: any
+      let r: any
+
+      if (open > close) {
+        // 시가가 종가보다 높을 때 (Red)
+        const y = (this.axis.y as BrushAxisScale)(open)
+
+        l = this.chart.svg.line({
+          x1: startX,
+          y1: (this.axis.y as BrushAxisScale)(high),
+          x2: startX,
+          y2: (this.axis.y as BrushAxisScale)(low),
+          stroke: this.chart.theme('candlestickInvertBorderColor'),
+          'stroke-width': 1,
+        })
+
+        r = this.chart.svg.rect({
+          x: startX - this.barPadding,
+          y,
+          width: this.barWidth,
+          height: Math.abs((this.axis.y as BrushAxisScale)(close) - y),
+          fill: this.chart.theme('candlestickInvertBackgroundColor'),
+          stroke: this.chart.theme('candlestickInvertBorderColor'),
+          'stroke-width': 1,
+        })
+      } else {
+        const y = (this.axis.y as BrushAxisScale)(close)
+
+        l = this.chart.svg.line({
+          x1: startX,
+          y1: (this.axis.y as BrushAxisScale)(high),
+          x2: startX,
+          y2: (this.axis.y as BrushAxisScale)(low),
+          stroke: this.chart.theme('candlestickBorderColor'),
+          'stroke-width': 1,
+        })
+
+        r = this.chart.svg.rect({
+          x: startX - this.barPadding,
+          y,
+          width: this.barWidth,
+          height: Math.abs((this.axis.y as BrushAxisScale)(open) - y),
+          fill: this.chart.theme('candlestickBackgroundColor'),
+          stroke: this.chart.theme('candlestickBorderColor'),
+          'stroke-width': 1,
+        })
+      }
+
+      this.addEvent(r, index, null)
+
+      this.g.append(l)
+      this.g.append(r)
+    })
+
+    return this.g
+  }
+
+  static setup(): Record<string, unknown> {
+    return {}
+  }
+}
+
+registerBrush('candlestick', CandleStickBrush)
