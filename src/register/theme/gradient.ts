@@ -412,7 +412,32 @@ export const gradientTheme: Record<string, unknown> = {
   bubbleCloudFontWeight: 'bold',
 
   equalizerColumnErrorBackgroundColor: '#ff0000',
-  equalizerColumnErrorFontColor: '#fff'
+  equalizerColumnErrorFontColor: '#fff',
+
+  // hudbar/hudcolumn styles - confirmed byte-identical across all 4 real themes.
+  hudColumnGridPointRadius: 7,
+  hudColumnGridPointBorderColor: '#868686',
+  hudColumnGridPointBorderWidth: 2,
+  hudColumnGridFontColor: '#868686',
+  hudColumnGridFontSize: 12,
+  hudColumnGridFontWeight: 'normal',
+  hudColumnLeftBackgroundColor: '#3C3C3C',
+  hudColumnRightBackgroundColor: '#838383',
+  hudBarGridFontColor: '#868686',
+  hudBarGridFontSize: 16,
+  hudBarGridLineColor: '#868686',
+  hudBarGridLineWidth: 1,
+  hudBarGridLineOpacity: 0.8,
+  hudBarGridBackgroundColor: '#868686',
+  hudBarGridBackgroundOpacity: 0.5,
+  hudBarTextLineColor: '#B2A6A6',
+  hudBarTextLineWidth: 1.5,
+  hudBarTextLinePadding: 12,
+  hudBarTextLineFontColor: '#868686',
+  hudBarTextLineFontSize: 13,
+  hudBarBackgroundOpacity: 0.6,
+  hudBarTopBackgroundColor: '#bbb',
+  hudBarBottomBackgroundColor: '#3C3C3C'
 }
 
 registerTheme('gradient', gradientTheme)

@@ -106,4 +106,19 @@ import './theme/pastel'
 import './brush/splitline'
 import './brush/splitarea'
 
+// Phase 6: a full-repo demo scan (161 real site demos) found 39 further completely-unregistered
+// brush/widget types - batch 1, the 12 self-contained/small-dependency-chain ones.
+import './brush/path'
+import './brush/hudbar'
+import './brush/hudcolumn'
+import './brush/waterfall'
+import './brush/scatterpath'
+import './brush/circlegauge'
+import './brush/arcgauge'
+import './brush/ohlc'
+import './brush/imagebar'
+import './brush/patternbar'
+import './brush/imagecolumn'
+import './brush/patterncolumn'
+
 export { GRID_TYPES } from './gridTypes'

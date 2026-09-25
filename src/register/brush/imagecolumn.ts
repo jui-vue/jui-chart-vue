@@ -1,0 +1,88 @@
+// Port of legacy `src/brush/imagecolumn.js` ("chart.brush.imagecolumn", extend:
+// "chart.brush.imagebar") - the vertical-column counterpart to `imagebar.ts` (extends
+// `ImageBarBrush`, confirmed from the legacy file's own `extend:` field), reusing its inherited
+// `getImageURI()`/`getBarStyle()` unchanged, with its own x/y-swapped `drawBefore()`/`draw()`.
+import { registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+import { ImageBarBrush } from './imagebar'
+
+export class ImageColumnBrush extends ImageBarBrush {
+  private zeroY = 0
+  private halfWidth = 0
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+
+    this.g = this.chart.svg.group()
+    this.targets = (brush.target ?? []) as string[]
+    this.padding = brush.innerPadding as number
+    this.zeroY = (this.axis.y as BrushAxisScale)(0)
+    ;(this.axis.x as BrushAxisScale).rangeBand!() // dead in legacy too (computed, never read again - see hudbar.ts's identical convention note)
+    this.colWidth = brush.width as number
+    this.colHeight = brush.height as number
+    this.halfWidth = this.colWidth * this.targets.length + (this.targets.length - 1) * this.padding
+  }
+
+  draw = (): any => {
+    const brush = this.brush as Record<string, unknown>
+
+    this.eachData((data, i) => {
+      const row = data as BrushData
+      const index = i as number
+      let startX = this.offset('x', index) - this.halfWidth / 2
+
+      for (let j = 0; j < this.targets.length; j++) {
+        const value = row[this.targets[j]]
+        const startY = (this.axis.y as BrushAxisScale)(value)
+        const height = Math.abs(this.zeroY - startY)
+
+        const bar = this.chart.svg.group({}, () => {
+          const img = this.chart.svg.image({
+            width: this.colWidth,
+            height: this.colHeight,
+            'xlink:href': this.getImageURI(this.targets[j], value),
+          })
+
+          if (brush.fixed) {
+            let h = height - this.colHeight
+            const style = this.getBarStyle()
+
+            if (h < 0) h = 0
+
+            this.chart.svg.rect({
+              y: this.colHeight,
+              width: this.colWidth,
+              height: h,
+              fill: this.color(index, j),
+              stroke: style.borderColor,
+              'stroke-width': style.borderWidth,
+              'stroke-opacity': style.borderOpacity,
+            })
+          } else {
+            if (height > 0 && this.colHeight > 0) {
+              img.scale(1, height > this.colHeight ? height / this.colHeight : this.colHeight / height)
+            }
+          }
+        })
+
+        if (value != 0) {
+          this.addEvent(bar, index, j)
+        }
+
+        if (startY <= this.zeroY) {
+          bar.translate(startX, startY)
+        } else {
+          bar.translate(startX, this.zeroY)
+        }
+
+        this.g.append(bar)
+
+        startX += this.colWidth + this.padding
+      }
+    })
+
+    return this.g
+  }
+}
+
+registerBrush('imagecolumn', ImageColumnBrush)
