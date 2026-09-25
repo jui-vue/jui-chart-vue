@@ -1,0 +1,94 @@
+// Port of legacy `src/brush/polygon/column3d.js` ("chart.brush.polygon.column3d", extend:
+// "chart.brush.polygon.core") - draws each `(dataIndex, targetIndex)` cell as a real 3D `<polygon>`
+// cube (`CubePolygon`, `chart.polygon.cube`, already ported to `jui-graph-ts`), one `<polygon>` SVG
+// face element per visible cube face, all queued through the inherited `createPolygon()`
+// (`jui-graph-ts`'s `PolygonCoreBrush` - z-sorts/rotates/stamps `.order` for `util/svg.ts`'s
+// `appendAll()`).
+import { registerBrush, PolygonCoreBrush, CubePolygon, colorUtil } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+
+/** Own `chart.brush.polygon.column3d.setup()` fields - see legacy `polygon/column3d.js`. */
+export const POLYGON_COLUMN3D_BRUSH_OWN_DEFAULTS = {
+  width: 0,
+  height: 0,
+  padding: 20,
+  clip: false,
+}
+
+export class PolygonColumn3DBrush extends PolygonCoreBrush {
+  private colWidth = 0
+  private colHeight = 0
+
+  private createColumn(data: BrushData, target: string, dataIndex: number, targetIndex: number) {
+    const w = this.colWidth
+    const h = this.colHeight
+    const x = (this.axis.x as BrushAxisScale)(dataIndex) - w / 2
+    const y = (this.axis.y as BrushAxisScale)(data[target])
+    const yy = (this.axis.y as BrushAxisScale)(0)
+    const z = (this.axis.z as BrushAxisScale)(targetIndex) - h / 2
+    const color = this.color(targetIndex)
+
+    // Explicit `<CubePolygon, any>` generic args - `createPolygon()`'s own `E extends
+    // PolygonBrushElement` bound requires an index-signature type, which the real returned
+    // `TransElement` (`this.chart.svg.group()`, not publicly exported/nameable from this package)
+    // structurally isn't - `any` satisfies the bound trivially while keeping the real runtime
+    // object (and its real `.order` stamp from `createPolygon()` itself) untouched.
+    return this.createPolygon<CubePolygon, any>(new CubePolygon(x, yy, z, w, y - yy, h), (p) => {
+      const g = this.chart.svg.group()
+
+      for (let i = 0; i < p.faces.length; i++) {
+        const key = p.faces[i]
+
+        const face = this.chart.svg.polygon({
+          fill: color,
+          'fill-opacity': this.chart.theme('polygonColumnBackgroundOpacity'),
+          stroke: colorUtil.darken(color as string, this.chart.theme('polygonColumnBorderOpacity') as number),
+          'stroke-opacity': this.chart.theme('polygonColumnBorderOpacity'),
+        })
+
+        for (let j = 0; j < key.length; j++) {
+          const vector = p.vectors![key[j]]
+          face.point(vector.x, vector.y)
+        }
+
+        g.append(face)
+      }
+
+      if (data[target] != 0) {
+        this.addEvent(g, dataIndex, targetIndex)
+      }
+
+      return g
+    })
+  }
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+    const padding = brush.padding as number
+    const width = (this.axis.x as BrushAxisScale).rangeBand!()
+    const height = (this.axis.z as BrushAxisScale).rangeBand!()
+
+    this.colWidth = (brush.width as number) > 0 ? (brush.width as number) : width - padding * 2
+    this.colHeight = (brush.height as number) > 0 ? (brush.height as number) : height - padding * 2
+  }
+
+  draw = (): any => {
+    const g = this.chart.svg.group()
+    const datas = this.listData() as BrushData[]
+    const targets = (this.brush as Record<string, unknown>).target as string[]
+
+    for (let i = 0; i < datas.length; i++) {
+      for (let j = 0; j < targets.length; j++) {
+        g.append(this.createColumn(datas[i], targets[j], i, j))
+      }
+    }
+
+    return g
+  }
+
+  static setup(): Record<string, unknown> {
+    return POLYGON_COLUMN3D_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('polygon.column3d', PolygonColumn3DBrush)

@@ -1,0 +1,109 @@
+// Port of legacy `src/widget/polygon/rotate3d.js` ("chart.widget.polygon.rotate3d", extend:
+// "chart.widget.polygon.core") - a drag-to-rotate interaction widget for 3D (`polygon.*`-brush)
+// charts: on `mousedown` over an axis, tracks the drag delta and maps it to `axis.degree.x`/
+// `axis.degree.y` (clamped to a `unit`-degree grid), re-rendering the whole chart on every step
+// that actually changes the snapped angle.
+//
+// `PolygonRotate3DWidget extends PolygonCoreWidget` (`jui-graph-ts`'s real port of
+// `chart.widget.polygon.core` - a two-line pass-through over `CoreWidget` with an empty
+// `drawAfter()` override, see that file's own header comment) - confirmed from the legacy file's
+// own `extend` field.
+import { PolygonCoreWidget, registerWidget } from 'jui-graph-ts'
+
+const DEGREE_LIMIT = 180
+
+interface RotatableAxis {
+  area(key: string): number
+  degree: { x: number; y: number; z: number }
+  set(key: string, value: unknown): void
+}
+
+interface AxisMouseEvent {
+  chartX: number
+  chartY: number
+}
+
+/** Own `chart.widget.polygon.rotate3d.setup()` fields - see legacy `polygon/rotate3d.js`. */
+export const POLYGON_ROTATE3D_WIDGET_OWN_DEFAULTS = {
+  unit: 5,
+  axis: [0],
+}
+
+export class PolygonRotate3DWidget extends PolygonCoreWidget {
+  private setScrollEvent(axisIndex: number): void {
+    const axis = this.chart.axis(axisIndex) as RotatableAxis
+    const widget = this.widget as Record<string, unknown>
+    const unit = widget.unit as number
+    const w = axis.area('width')
+    const h = axis.area('height')
+
+    let isMove = false
+    let mouseStartX = 0
+    let mouseStartY = 0
+    let sdx = 0
+    let sdy = 0
+    let cacheXY: string | null = null
+
+    const mousedown = (e: AxisMouseEvent): void => {
+      if (isMove) return
+
+      isMove = true
+      mouseStartX = e.chartX
+      mouseStartY = e.chartY
+      sdx = axis.degree.x
+      sdy = axis.degree.y
+    }
+
+    const mousemove = (e: AxisMouseEvent): void => {
+      if (!isMove) return
+
+      const gapX = e.chartX - mouseStartX
+      const gapY = e.chartY - mouseStartY
+      const dx = sdx + Math.floor((gapY / h) * DEGREE_LIMIT)
+      const dy = sdy - Math.floor((gapX / w) * DEGREE_LIMIT)
+
+      // 각도 Interval이 맞을 경우, 렌더링하지 않음 (skip re-render unless the snapped angle
+      // actually changed on this drag step).
+      if (dx % unit != 0 && dy % unit != 0) return
+
+      // 이전 각도와 동일할 경우, 렌더링하지 않음 (skip re-render if identical to the last
+      // rendered angle).
+      const newCacheXY = dx + ':' + dy
+      if (cacheXY == newCacheXY) return
+
+      axis.set('degree', { x: dx, y: dy })
+
+      this.chart.render()
+      cacheXY = newCacheXY
+    }
+
+    const mouseup = (): void => {
+      if (!isMove) return
+
+      isMove = false
+      mouseStartX = 0
+      mouseStartY = 0
+    }
+
+    this.on('axis.mousedown', mousedown, axisIndex)
+    this.on('axis.mousemove', mousemove, axisIndex)
+    this.on('axis.mouseup', mouseup, axisIndex)
+    this.on('bg.mouseup', mouseup)
+    this.on('chart.mouseup', mouseup)
+  }
+
+  draw = (): void => {
+    const widget = this.widget as Record<string, unknown>
+    const indexes = Array.isArray(widget.axis) ? (widget.axis as number[]) : [widget.axis as number]
+
+    for (let i = 0; i < indexes.length; i++) {
+      this.setScrollEvent(indexes[i])
+    }
+  }
+
+  static setup(): Record<string, unknown> {
+    return POLYGON_ROTATE3D_WIDGET_OWN_DEFAULTS
+  }
+}
+
+registerWidget('polygon.rotate3d', PolygonRotate3DWidget)
