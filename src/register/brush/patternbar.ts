@@ -1,0 +1,102 @@
+// Port of legacy `src/brush/patternbar.js` ("chart.brush.patternbar", extend:
+// "chart.brush.imagebar") - extends `ImageBarBrush` (confirmed from the legacy file's own
+// `extend:` field), reusing its inherited `getImageURI()` but overriding `drawBefore()`/`draw()`
+// completely: instead of an `<image>`+optional-backing-`<rect>` per cell (`imagebar.ts`'s own
+// approach), this fills a single `<rect>` per cell with an SVG `<pattern>` (one freshly `<defs>`-
+// registered pattern per cell, via its own new `createPattern()`) tiling `brush.uri`'s image.
+import { registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+import { ImageBarBrush } from './imagebar'
+
+/** Own `chart.brush.patternbar.setup()` fields - see legacy `patternbar.js`. */
+export const PATTERNBAR_BRUSH_OWN_DEFAULTS = {
+  innerPadding: 2,
+  width: 0,
+  height: 0,
+  uri: null as string | ((this: unknown, key: string, value: unknown) => string) | null,
+}
+
+function createId(key?: string): string {
+  return [key || 'id', +new Date(), Math.round(Math.random() * 100) % 100].join('-')
+}
+
+export class PatternBarBrush extends ImageBarBrush {
+  createPattern(width: number, height: number, key: string, value: unknown): string {
+    const id = createId('pattern-')
+    const pattern = this.chart.svg.pattern({
+      id,
+      x: 0,
+      y: 0,
+      width,
+      height,
+      patternUnits: 'userSpaceOnUse',
+    })
+    const image = this.chart.svg.image({
+      width,
+      height,
+      'xlink:href': this.getImageURI(key, value),
+    })
+
+    pattern.append(image)
+    ;(this.chart as unknown as { appendDefs(elem: unknown): void }).appendDefs(pattern)
+
+    return id
+  }
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+
+    this.g = this.chart.svg.group()
+    this.targets = (brush.target ?? []) as string[]
+    this.padding = brush.innerPadding as number
+    this.zeroX = (this.axis.x as BrushAxisScale)(0)
+    this.height = (this.axis.y as BrushAxisScale).rangeBand!()
+    this.colWidth = brush.width as number
+    this.colHeight = brush.height as number
+    this.halfHeight = this.colHeight * this.targets.length + (this.targets.length - 1) * this.padding
+  }
+
+  draw = (): any => {
+    this.eachData((data, i) => {
+      const row = data as BrushData
+      const index = i as number
+      let startY = this.offset('y', index) - this.halfHeight / 2
+
+      for (let j = 0; j < this.targets.length; j++) {
+        const value = row[this.targets[j]]
+        const patternId = this.createPattern(this.colWidth, this.colHeight, this.targets[j], value)
+        const startX = (this.axis.x as BrushAxisScale)(value)
+        const width = Math.abs(this.zeroX - startX)
+
+        const r = this.chart.svg.rect({
+          width,
+          height: this.colHeight,
+          fill: 'url(#' + patternId + ')',
+          'stroke-width': 0,
+        })
+
+        if (value != 0) {
+          this.addEvent(r, index, j)
+        }
+
+        if (startX >= this.zeroX) {
+          r.translate(this.zeroX, startY)
+        } else {
+          r.translate(this.zeroX - width, startY)
+        }
+
+        this.g.append(r)
+
+        startY += this.colHeight + this.padding
+      }
+    })
+
+    return this.g
+  }
+
+  static setup(): Record<string, unknown> {
+    return PATTERNBAR_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('patternbar', PatternBarBrush)
