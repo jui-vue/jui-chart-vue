@@ -142,4 +142,18 @@ import './brush/fullstackcolumn3d'
 import './brush/fullstackcylinder3d'
 import './brush/bubble3d'
 
+// Phase 6, batch 4 (LAST batch): the map.* brush/widget family, on top of jui-graph-ts's already-
+// ported base/map.ts "chart.map" engine + brush/map/core.ts + widget/map/core.ts.
+import './brush/map/bubble'
+import './brush/map/selector'
+import './brush/map/marker'
+import './brush/map/note'
+import './brush/map/weather'
+import './brush/map/comparebubble'
+import './brush/map/flightroute'
+
+import './widget/map/tooltip'
+import './widget/map/control'
+import './widget/map/minimap'
+
 export { GRID_TYPES } from './gridTypes'

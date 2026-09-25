@@ -4,8 +4,9 @@
 // expects, then lets `Builder`'s real engine do 100% of the rendering (imperative DOM, not a Vue
 // template) - `<template>` below really is just the one `<div ref="rootEl" />`.
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Builder } from 'jui-graph-ts'
+import type { Builder } from 'jui-graph-ts'
 import { GRID_TYPES } from './register/setup'
+import { ChartBuilder } from './register/chartMap'
 
 export interface AxisPadding {
   top?: number
@@ -130,9 +131,16 @@ function remount(): void {
   el.innerHTML = ''
   mountedEl = el
 
-  const b = new Builder()
-  // `Builder` never declares/populates `gridTypes`/`mapType` itself (see `register/gridTypes.ts`'s
-  // header comment) - stamped on directly before `.mount()`, since `mount()` renders synchronously.
+  // `ChartBuilder` (not `jui-graph-ts`'s own `Builder` directly) - its own `mount()` override
+  // pre-processes any `axis[].map` config through `preprocessMapAxis()`/`createMapConfig()`
+  // (`./register/chartMap.ts`'s own header comment has the full "two compounding, already-ported-
+  // code bugs" writeup for why this is necessary at all) - the SAME fix `index.ts`'s own
+  // re-exported `Builder` applies, so both real entry points into this project's engine (this
+  // component AND www.jui-vue.io's own legacy `chart.builder` shim, which uses that re-export
+  // directly and never goes through `<Chart>`/Vue at all) get it.
+  const b: Builder = new ChartBuilder()
+  // `Builder` never declares/populates `gridTypes` itself (see `register/gridTypes.ts`'s header
+  // comment) - stamped on directly before `.mount()`, since `mount()` renders synchronously.
   Object.assign(b, { gridTypes: GRID_TYPES })
   b.mount(el, assembledOptions.value as never)
 
