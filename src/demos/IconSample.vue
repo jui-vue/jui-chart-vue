@@ -4,12 +4,13 @@
 // `parseIconInText()`) via the `title` widget.
 //
 // NOTE: in a real Chromium screenshot (Playwright), these currently render as "tofu"/missing-glyph
-// boxes, NOT the real icons - see `register/icon/classic.ts`'s own header comment for the full,
-// confirmed root cause (a genuine, pre-existing Chromium limitation with runtime-`insertRule()`-
-// inserted `@font-face` + SVG text, reproduced identically in a minimal `jui-graph-ts`-free test,
-// not a bug in this port). The underlying wiring IS fully correct and unit-tested (codepoint
-// resolution, font loading, CSS font-family cascade) - only the final Chromium glyph PAINT is
-// affected. This demo is kept as an honest visual record of that known, flagged limitation.
+// boxes, NOT the real icons - OPEN ISSUE, NOT FIXED, root cause unknown (a prior "confirmed fix"
+// attributing this to `Builder.setVectorFontIcons()`'s specific CSS-injection technique was later
+// disproven by a more rigorous re-test - see `register/icon/classic.ts`'s own header comment for
+// the full history). The underlying wiring IS fully correct and unit-tested (codepoint resolution,
+// font loading, CSS font-family cascade, exactly one `@font-face` rule present) - only the final
+// Chromium glyph PAINT is affected, for reasons not yet identified. This demo is kept as an honest
+// visual record of that known, flagged, not-currently-being-investigated-further issue.
 import Chart from '../Chart.vue'
 
 const axis = [{ data: [] }]
