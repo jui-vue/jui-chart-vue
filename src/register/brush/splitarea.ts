@@ -1,0 +1,100 @@
+// Port of legacy `src/brush/splitarea.js` ("chart.brush.splitarea", extend:
+// "chart.brush.splitline") - extends `SplitLineBrush` (`splitline.ts`, confirmed from the legacy
+// file's own `extend:` field), reusing its `createLine()`/`getXY()` wholesale via real TS class
+// inheritance, only adding its own `drawArea()`/`draw()` (fills the area under each split line,
+// itself split into two differently-colored regions at the same `brush.split` boundary
+// `createLine()` already uses for its own stroke split). Used directly by the real site's own
+// "Today's TPS" (`realtime1.js`) demo.
+//
+// **Source provenance**: same gap as `splitline.ts` - no `src/brush/splitarea.js` counterpart
+// existed anywhere in this repo's copied legacy source tree (confirmed via `find src -iname
+// "splitarea*"` before this port), despite being real, live code in the real bundled site engine
+// (`www.jui-vue.io/lib/jui/js/chart.js`, uncompressed, line ~13952) and used directly by the real
+// site's `realtime1.js` demo (confirmed rendering correctly on chartplay.jui.io, i.e. a genuine
+// porting gap, not dead code). Sourced from `juijs/store.jui.io`'s own bundled asset mirror
+// (`public/jui-all/jui-chart/js/brush/splitarea.js`), cross-checked byte-identical against the
+// real uncompressed `chart.js` bundle's own inline copy - copied verbatim into this repo's own
+// `src/brush/splitarea.js` before this port, per this project's normal workflow.
+import { registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushSeriesXY } from 'jui-graph-ts'
+import { SplitLineBrush } from './splitline'
+
+/** Own `chart.brush.splitarea.setup()` fields - see legacy `splitarea.js`. Note `line` is a NEW
+ * key over `SplitLineBrush.setup()`'s own `symbol`/`split` (which this class still inherits
+ * unchanged, per the real `extend` chain - `jui-graph-ts`'s `defineOptions()` walks the full
+ * chain itself, same as every other multi-level brush this project has ported). */
+export const SPLITAREA_BRUSH_OWN_DEFAULTS = {
+  symbol: 'normal' as 'normal' | 'curve' | 'step',
+  split: null as number | Date | null,
+  line: true,
+}
+
+export class SplitAreaBrush extends SplitLineBrush {
+  drawArea(path: BrushSeriesXY[]): any {
+    const g = this.chart.svg.group()
+    const maxY = this.chart.area('height')
+    let split = (this.brush as Record<string, unknown>).split as number | Date | null
+    const splitColor = this.chart.theme('areaSplitBackgroundColor')
+
+    for (let k = 0; k < path.length; k++) {
+      const opts: Record<string, unknown> = {
+        fill: this.color(k),
+        'fill-opacity': this.chart.theme('areaBackgroundOpacity'),
+        'stroke-width': 0,
+      }
+
+      const line = this.createLine(path[k], k)
+      const xList = path[k].x
+
+      // 날짜일 경우, 해당 인덱스를 구해야 함 (a Date `split` is resolved to its row INDEX here,
+      // once per target, before the per-segment fill loop below - unlike `createLine()`'s own
+      // `split` check, which re-derives the inverted x-value per row instead of caching an index).
+      if (split instanceof Date) {
+        for (let i = 0; i < xList.length - 1; i++) {
+          if (((this.axis.x as BrushAxisScale & { invert(v: number): unknown }).invert(xList[i]) as Date).getTime() >= split.getTime()) {
+            split = i
+            break
+          }
+        }
+      }
+
+      line.each((i: number, p: any) => {
+        if (i == 0) {
+          split = split != null ? split : xList.length - 1
+
+          p.LineTo(xList[split as number], maxY)
+          p.LineTo(xList[0], maxY)
+          p.attr(opts)
+        } else {
+          opts['fill'] = splitColor
+
+          p.LineTo(xList[xList.length - 1], maxY)
+          p.LineTo(xList[split as number], maxY)
+          p.attr(opts)
+        }
+
+        p.ClosePath()
+      })
+
+      this.addEvent(line, undefined, k)
+      g.prepend(line)
+
+      // Add line
+      if ((this.brush as Record<string, unknown>).line) {
+        g.prepend(this.createLine(path[k], k))
+      }
+    }
+
+    return g
+  }
+
+  draw = (): any => {
+    return this.drawArea(this.getXY())
+  }
+
+  static setup(): Record<string, unknown> {
+    return SPLITAREA_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('splitarea', SplitAreaBrush)
