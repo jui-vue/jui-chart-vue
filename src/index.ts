@@ -11,5 +11,15 @@ export type { AxisConfig, AxisPadding, BrushConfig, WidgetConfig } from './Chart
 // legacy demo code (`chart.axis(0).update(...)`, `chart.render()`, `chart.updateBrush(...)`, etc.)
 // expects. `GRID_TYPES` must be assigned onto every `Builder` instance before `.mount()` (see
 // `Chart.vue`'s own `remount()`), exactly mirroring how the real engine wires registered axis types.
-export { Builder } from 'jui-graph-ts'
+//
+// Exports `./register/chartMap.ts`'s `ChartBuilder` (a thin `Builder` subclass) here, NOT
+// `jui-graph-ts`'s own `Builder` directly - `ChartBuilder`'s only difference is its own `mount()`
+// override pre-processing any `axis[].map` config (the `map.*` brush/widget family's own axis
+// shape) through `preprocessMapAxis()`, working around two real, compounding bugs in already-
+// ported `jui-graph-ts` code (`base/map.ts`/`base/axis.ts`) this project may not modify directly -
+// see `chartMap.ts`'s own header comment for the full writeup. Since www.jui-vue.io's own
+// `chart.builder` shim (`play/chart/chart.js`) uses THIS exact re-export directly and never goes
+// through `<Chart>`/Vue at all, fixing the bug only inside `Chart.vue` would never reach it - this
+// re-export is the one place both real entry points into this project's engine share.
+export { ChartBuilder as Builder } from './register/chartMap'
 export { GRID_TYPES } from './register/setup'

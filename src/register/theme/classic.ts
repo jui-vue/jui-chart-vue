@@ -314,6 +314,73 @@ export const classicTheme: Record<string, unknown> = {
   equalizerColumnErrorBackgroundColor: '#ff0000',
   equalizerColumnErrorFontColor: '#fff',
 
+  // Map Chart styles - genuinely missing from this file until now (not a preserved-quirk omission):
+  // confirmed byte-identical across all 5 real themes (this project's classic/dark/gradient/
+  // pattern/pastel, i.e. the real site's jennifer/dark/gradient/pattern/pastel bundled theme
+  // defs - cross-checked directly against `www.jui-vue.io/lib/jui/js/chart.js`), same as the
+  // hudbar/hudcolumn note just above. `dark.ts`/`gradient.ts`/`pattern.ts` already carry this exact
+  // block (byte-for-byte, values confirmed against the live bundle) but left it commented out;
+  // this file (the DEFAULT theme - what every `map.*` demo that never passes an explicit `theme`
+  // prop actually renders with) never had it at all. Confirmed as a real gap, not a preserved bug,
+  // via Playwright against the live site: `map.flightroute`/`map.comparebubble`/`map.minimap`
+  // demos (none of which set an explicit theme) threw real jsdom/Chromium SVG-attribute-parse
+  // errors (`<circle> attribute r: Expected length, "NaN"/"undefined"`, `<tspan> attribute y:
+  // Expected length, "undefined"`) and, for `map.minimap`, a thrown `TypeError` that aborted the
+  // ENTIRE chart's render - all because `this.chart.theme('mapFlightRouteAirportRadius')` etc.
+  // resolved to `undefined` with no default theme value to fall back to.
+  mapPathBackgroundColor: '#67B7DC',
+  mapPathBackgroundOpacity: 1,
+  mapPathBorderColor: '#fff',
+  mapPathBorderWidth: 1,
+  mapPathBorderOpacity: 1,
+  mapBubbleBackgroundOpacity: 0.5,
+  mapBubbleBorderWidth: 1,
+  mapBubbleFontSize: 11,
+  mapBubbleFontColor: '#fff',
+  mapSelectorHoverColor: '#5a73db',
+  mapSelectorActiveColor: '#CC0000',
+  mapFlightRouteAirportSmallColor: '#CC0000',
+  mapFlightRouteAirportLargeColor: '#000',
+  mapFlightRouteAirportBorderWidth: 2,
+  mapFlightRouteAirportRadius: 8,
+  mapFlightRouteLineColor: '#ff0000',
+  mapFlightRouteLineWidth: 1,
+  mapWeatherBackgroundColor: '#fff',
+  mapWeatherBorderColor: '#a9a9a9',
+  mapWeatherFontSize: 11,
+  mapWeatherTitleFontColor: '#666',
+  mapWeatherInfoFontColor: '#ff0000',
+  mapCompareBubbleMaxLineColor: '#fff',
+  mapCompareBubbleMaxLineDashArray: '2,2',
+  mapCompareBubbleMaxBorderColor: '#fff',
+  mapCompareBubbleMaxFontSize: 36,
+  mapCompareBubbleMaxFontColor: '#fff',
+  mapCompareBubbleMinBorderColor: '#ffff00',
+  mapCompareBubbleMinFontSize: 24,
+  mapCompareBubbleMinFontColor: '#000',
+  mapControlButtonColor: '#3994e2',
+  mapControlLeftButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAIQjI9poMcdXpOKTujw0pGjAgA7',
+  mapControlRightButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAIQjI8JycvonomSKhksxBqbAgA7',
+  mapControlTopButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAIQjI+pCmvd2IkzUYqw27yfAgA7',
+  mapControlBottomButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAIQjI+pyw37TDxTUhhq0q2fAgA7',
+  mapControlHomeButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAAAAAAAAACH5BAUAAAEALAAAAAALAAsAAAIZjI8ZoAffIERzMVMxm+9KvIBh6Imb2aVMAQA7',
+  mapControlUpButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAISjI8ZoMhtHpQH2HsV1TD29SkFADs=',
+  mapControlDownButtonImage: 'data:image/gif;base64,R0lGODlhCwALAPABAP///wAAACH5BAUAAAEALAAAAAALAAsAAAIMjI+py+0BopSv2qsKADs=',
+  mapControlScrollColor: '#000',
+  mapControlScrollLineColor: '#fff',
+  mapMinimapBackgroundColor: 'transparent',
+  mapMinimapBorderColor: 'transparent',
+  mapMinimapBorderWidth: 1,
+  mapMinimapPathBackgroundColor: '#67B7DC',
+  mapMinimapPathBackgroundOpacity: 0.5,
+  mapMinimapPathBorderColor: '#67B7DC',
+  mapMinimapPathBorderWidth: 0.5,
+  mapMinimapPathBorderOpacity: 0.1,
+  mapMinimapDragBackgroundColor: '#7CC7C3',
+  mapMinimapDragBackgroundOpacity: 0.3,
+  mapMinimapDragBorderColor: '#56B4AF',
+  mapMinimapDragBorderWidth: 1,
+
   // hudbar/hudcolumn styles - confirmed byte-identical across all 4 real themes (classic/dark/
   // gradient/pattern), unlike every other per-brush key group above.
   hudColumnGridPointRadius: 7,
