@@ -1,0 +1,230 @@
+// Port of legacy `src/widget/zoomselect.js` ("chart.widget.zoomselect", extend:
+// "chart.widget.core") - extends `CoreWidget` directly. Drags a horizontal band over one or more
+// configured axes; on release, computes either a block-index range (`xtype === "block"`) or a
+// date-value range (`"date"`/`"dateblock"`, using the drag-start/drag-end pixel positions inverted
+// through `axis.x`) and emits `zoomselect.end` with the computed `[start, end]` (or
+// `[stime, etime]`, possibly concatenated with a block range too for `"dateblock"`) - a small "×"
+// close button appears on the highlighted band afterward, whose click emits `zoomselect.close`
+// (does NOT re-zoom or clear anything on its own - a passive notification widget, same category as
+// `dragselect.ts`, not a self-contained zoom like `zoom.ts`).
+//
+// **PRESERVED QUIRK**: `this.rollbackZoom = function() { this.chart.emit("zoomselect.close"); }`
+// takes NO parameters, but is always CALLED with one (`self.rollbackZoom(axisIndex)` in the close-
+// button's own click handler) - a real, inert extra argument (same "drop an already-100%-inert
+// argument" precedent used elsewhere in this project), not a sign `rollbackZoom` was meant to use
+// it.
+//
+// **PRESERVED QUIRK**: `updateBlockGrid()`'s own `if (start >= end) return [start, end];` branch
+// returns the EXACT SAME `[start, end]` pair as the line immediately after it (`return [start,
+// end];`, unconditionally reached either way) - a genuine no-op conditional in the real source
+// (confirmed by reading both branches: they're identical), not a guard that changes behavior.
+// Reproduced as a single unconditional return, matching the ACTUAL behavior (not the source's
+// literal dead branching, which would be pure noise to reproduce with no observable difference).
+import { CoreWidget, registerWidget } from 'jui-graph-ts'
+
+const R = 12
+
+/** Own `chart.widget.zoomselect.setup()` fields - see legacy `zoomselect.js`. */
+export const ZOOMSELECT_WIDGET_OWN_DEFAULTS = {
+  axis: 0 as number | number[],
+}
+
+export class ZoomSelectWidget extends CoreWidget {
+  private top = 0
+  private left = 0
+
+  private setDragEvent(axisIndex: number, thumb: any, bg: any): void {
+    const axis = this.chart.axis(axisIndex)
+    const xtype = (axis.get('x') as Record<string, unknown>).type
+    let startDate: Date | null = null
+    let isMove = false
+    let mouseStart = 0
+    let thumbWidth = 0
+
+    const updateBlockGrid = (): [number, number] => {
+      const range = axis.end - axis.start
+      const tick = axis.area('width') / (range > 0 ? range : axis.data.length)
+      const x = (thumbWidth > 0 ? mouseStart : mouseStart + thumbWidth) - this.left
+      const start = Math.floor(x / tick) + axis.start
+      const end = Math.ceil((x + Math.abs(thumbWidth)) / tick) + axis.start
+
+      return [start, end]
+    }
+
+    const updateDateObj = (endDate: Date): [number, number] => {
+      const stime = (startDate as Date).getTime()
+      const etime = endDate.getTime()
+
+      if (stime >= etime) return [etime, stime]
+
+      return [stime, etime]
+    }
+
+    const renderChart = () => {
+      if (bg != null) {
+        const w = thumb.attributes.width
+
+        bg.attr({ visibility: 'visible' })
+        bg.get(0).attr({ width: w })
+        bg.get(1).get(0).attr({ width: w })
+        bg.get(1).get(1).translate(w - R, -R)
+      }
+    }
+
+    const resetDragStatus = () => {
+      isMove = false
+      mouseStart = 0
+      thumbWidth = 0
+      startDate = null
+
+      if (thumb != null) {
+        thumb.attr({ width: 0 })
+      }
+    }
+
+    const endZoomAction = (e: { chartX: number }) => {
+      let args: number[] = []
+
+      isMove = false
+      if (thumbWidth === 0) return
+
+      if (xtype === 'block') {
+        args = updateBlockGrid()
+      } else {
+        if (startDate != null) {
+          args = updateDateObj(axis.x.invert(e.chartX))
+
+          if (xtype === 'dateblock') {
+            args = args.concat(updateBlockGrid())
+          }
+        }
+      }
+
+      renderChart()
+      resetDragStatus()
+
+      this.chart.emit('zoomselect.end', args)
+    }
+
+    this.on(
+      'axis.mousedown',
+      (e: { bgX: number; chartX: number }) => {
+        if (isMove) return
+
+        isMove = true
+        mouseStart = e.bgX
+
+        if (xtype === 'date' || xtype === 'dateblock') {
+          startDate = axis.x.invert(e.chartX)
+        }
+
+        this.chart.emit('zoomselect.start')
+      },
+      axisIndex,
+    )
+
+    this.on(
+      'axis.mousemove',
+      (e: { bgX: number }) => {
+        if (!isMove) return
+
+        thumbWidth = e.bgX - mouseStart
+
+        if (thumb != null) {
+          if (thumbWidth > 0) {
+            thumb.attr({ width: thumbWidth }).translate(mouseStart, this.top + axis.area('y'))
+
+            bg.get(1).get(0).attr({ cx: thumbWidth })
+            bg.translate(mouseStart, this.top + axis.area('y'))
+          } else {
+            thumb.attr({ width: Math.abs(thumbWidth) }).translate(mouseStart + thumbWidth, this.top + axis.area('y'))
+
+            bg.get(1).get(0).attr({ cx: Math.abs(thumbWidth) })
+            bg.translate(mouseStart + thumbWidth, this.top + axis.area('y'))
+          }
+        }
+      },
+      axisIndex,
+    )
+
+    this.on('axis.mouseup', endZoomAction, axisIndex)
+    this.on('chart.mouseup', endZoomAction)
+    this.on('bg.mouseup', endZoomAction)
+    this.on('bg.mouseout', endZoomAction)
+  }
+
+  drawSection(axisIndex: number): any {
+    const axis = this.chart.axis(axisIndex)
+    const cw = axis.area('width')
+    const ch = axis.area('height')
+
+    return this.chart.svg.group({}, () => {
+      const thumb = this.chart.svg.rect({
+        height: ch,
+        fill: this.chart.theme('zoomBackgroundColor'),
+        opacity: 0.3,
+      })
+
+      const bg = this.chart.svg
+        .group({ visibility: 'hidden' }, () => {
+          this.chart.svg.rect({
+            width: cw,
+            height: ch,
+            fill: this.chart.theme('zoomFocusColor'),
+            opacity: 0.2,
+          })
+
+          this.chart.svg
+            .group({ cursor: 'pointer' }, () => {
+              this.chart.svg.circle({ r: R, opacity: 0 })
+
+              this.chart.svg
+                .path({
+                  d: 'M12,2C6.5,2,2,6.5,2,12c0,5.5,4.5,10,10,10s10-4.5,10-10C22,6.5,17.5,2,12,2z M16.9,15.5l-1.4,1.4L12,13.4l-3.5,3.5 l-1.4-1.4l3.5-3.5L7.1,8.5l1.4-1.4l3.5,3.5l3.5-3.5l1.4,1.4L13.4,12L16.9,15.5z',
+                  fill: this.chart.theme('zoomFocusColor'),
+                })
+                .translate(cw - R, -R)
+            })
+            .on('click', () => {
+              bg.attr({ visibility: 'hidden' })
+
+              this.rollbackZoom()
+            })
+        })
+        .translate(this.left + axis.area('x'), this.top + axis.area('y'))
+
+      this.setDragEvent(axisIndex, thumb, bg)
+    })
+  }
+
+  rollbackZoom(): void {
+    this.chart.emit('zoomselect.close')
+  }
+
+  private getAxisList(): number[] {
+    const widgetAxis = (this.widget as Record<string, unknown>).axis
+    return Array.isArray(widgetAxis) ? widgetAxis : [widgetAxis as number]
+  }
+
+  drawBefore = (): void => {
+    this.top = this.chart.padding('top')
+    this.left = this.chart.padding('left')
+  }
+
+  draw = (): any => {
+    const g = this.chart.svg.group()
+    const axisList = this.getAxisList()
+
+    for (let i = 0; i < axisList.length; i++) {
+      g.append(this.drawSection(axisList[i]))
+    }
+
+    return g
+  }
+
+  static setup(): Record<string, unknown> {
+    return ZOOMSELECT_WIDGET_OWN_DEFAULTS
+  }
+}
+
+registerWidget('zoomselect', ZoomSelectWidget)

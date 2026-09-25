@@ -1,0 +1,98 @@
+// Port of legacy `src/brush/equalizerbar.js` ("chart.brush.equalizerbar", extend:
+// "chart.brush.stackbar") - extends `StackBarBrush` DIRECTLY (confirmed from the legacy file's own
+// `extend:` field - self-contained, does NOT need `chart.brush.equalizer`, which is a separate,
+// later-batch brush family entirely unrelated to this one despite the shared name prefix). Reuses
+// `getBarElement`/`addEvent`/`getTargetSize`/`static setup()`-chain unchanged; only `drawBefore`/
+// `draw` are overridden with the "block-train" rendering (a row's stacked segments are rendered as
+// a train of small fixed-size blocks with gaps, not a single continuous rect per segment).
+//
+// **Preserved quirk (source-confirmed via `main` branch's `useSeries.ts`
+// `equalizerStackedBlocks()` doc comment, which independently derived and documented the same
+// finding from this exact file)**: the running pixel position (`x`) is a SINGLE variable shared
+// across the WHOLE row, declared once before the per-target loop and never reset between targets -
+// only the remaining capacity (`targetX`) resets per target. So block placement is really one
+// continuous sequential "train" starting at the row's zero-axis position, split into consecutive
+// per-target runs - each run continues immediately from wherever the PREVIOUS target's run left
+// off, not realigned to that target's own true cumulative pixel boundary. A faithfully-preserved
+// upstream imprecision, not a bug introduced by this port - ported as a direct, literal translation
+// of the same loop (not via the `main` branch's abstracted `equalizerStackedBlocks()` helper,
+// consistent with this whole project's "port the legacy imperative code directly" convention).
+import { registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale } from 'jui-graph-ts'
+import { StackBarBrush } from './stackbar'
+
+/** Own `chart.brush.equalizerbar.setup()` fields - see legacy `equalizerbar.js`. */
+export const EQUALIZER_BAR_BRUSH_OWN_DEFAULTS = {
+  unit: 1,
+}
+
+export class EqualizerBarBrush extends StackBarBrush {
+  // Legacy `equalizerbar.js`'s own `drawBefore()` also computes `zeroX = this.axis.x(0)` into a
+  // closure var - confirmed dead in the legacy source (`draw()` recomputes its own local `startX =
+  // this.axis.x(0)` instead of reusing it) - not reproduced as a field for the same
+  // `noUnusedLocals` reason documented in `stackbar.ts`.
+  private ebBarHeight = 0
+  private ebReverse = false
+
+  drawBefore = (): void => {
+    this.g = this.svg.group()
+    this.ebBarHeight = this.getTargetSize()
+    this.ebReverse = !!(this.axis.get('x') as Record<string, unknown>).reverse
+  }
+
+  draw = (): any => {
+    const targets = this.brush.target ?? []
+    const padding = (this.brush as Record<string, unknown>).innerPadding as number
+    const band = (this.axis.x as BrushAxisScale).rangeBand!()
+    const unit = band / (((this.brush as Record<string, unknown>).unit as number) * padding)
+    const width = unit + padding
+
+    this.eachData((data, i) => {
+      const row = data as Record<string, unknown>
+      const index = i as number
+      const startY = this.offset('y', index) - this.ebBarHeight / 2
+      let startX = (this.axis.x as BrushAxisScale)(0)
+      let x = startX
+      let value = 0
+
+      for (let j = 0; j < targets.length; j++) {
+        const barGroup = this.svg.group()
+        const xValue = (row[targets[j]] as number) + value
+        const endX = (this.axis.x as BrushAxisScale)(xValue)
+        const targetWidth = Math.abs(startX - endX)
+        let targetX = targetWidth
+
+        while (targetX >= width) {
+          const r = this.getBarElement(index, j)
+
+          r.attr({
+            x,
+            y: startY,
+            width: unit,
+            height: this.ebBarHeight,
+          })
+
+          targetX -= width
+          x -= this.ebReverse ? width : -width
+
+          barGroup.append(r)
+        }
+
+        barGroup.translate(this.ebReverse ? -unit : 0, 0)
+        this.addEvent(barGroup, index, j)
+        this.g.append(barGroup)
+
+        startX = endX
+        value = xValue
+      }
+    })
+
+    return this.g
+  }
+
+  static setup(): Record<string, unknown> {
+    return EQUALIZER_BAR_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('equalizerbar', EqualizerBarBrush)
