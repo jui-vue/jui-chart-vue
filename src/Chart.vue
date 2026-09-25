@@ -87,6 +87,10 @@ const props = defineProps<{
    * `this.canvas` stays `null`.
    */
   canvas?: boolean
+  /** Forwarded to `Builder`'s own `event` option - top-level chart events (e.g. `click`, bound by
+   * `Core.mount()` via `on(key, handler)` for each entry) as opposed to a specific brush/widget's
+   * own `event` sub-option (already passed through untouched inside `brush`/`widget` array items). */
+  event?: Record<string, (...args: unknown[]) => unknown>
 }>()
 
 /** `import.meta.env.BASE_URL` (Vite's own configured `base`, `/` by default) rather than a bare
@@ -113,6 +117,7 @@ const assembledOptions = computed(() => ({
   render: props.render,
   icon: props.icon ?? { type: 'classic', path: DEFAULT_ICON_FONT_PATHS },
   canvas: props.canvas,
+  event: props.event,
 }))
 
 /**
@@ -169,3 +174,16 @@ defineExpose({
 <template>
   <div ref="rootEl" class="jui-chart"></div>
 </template>
+
+<style scoped>
+/* `Builder.setup()` defaults `width`/`height` to the string `"100%"`, which the underlying SVG
+ * element resolves against ITS OWN parent - this wrapper div. Without an explicit size of its own,
+ * a plain <div> has no intrinsic height, so that "100%" silently collapses to the SVG's content
+ * height (visibly wrong: a squashed chart) instead of stretching to fill whatever real container
+ * (e.g. `#result`) this component was placed in. Consumers that pass explicit numeric `width`/
+ * `height` props aren't affected either way, since the SVG then gets literal pixel attributes. */
+.jui-chart {
+  width: 100%;
+  height: 100%;
+}
+</style>
