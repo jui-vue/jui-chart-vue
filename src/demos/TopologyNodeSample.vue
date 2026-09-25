@@ -52,9 +52,9 @@ const brush = [
     // Restored to the real legacy demo's own `"{server}"`/`"{was}"`/`"{db}"` icon-font placeholders
     // now that the icon subsystem is registered (`register/icon/classic.ts`) and `<Chart>` wires a
     // working default font. The underlying codepoint-resolution/font-loading/CSS wiring is all
-    // correct and unit-tested, but a confirmed Chromium limitation currently keeps these from
-    // painting as real glyphs in a Playwright screenshot (tofu boxes instead) - see
-    // `register/icon/classic.ts`'s own header comment for the full root-cause analysis.
+    // correct and unit-tested, but these still render as tofu boxes (not real glyphs) in a
+    // Playwright screenshot - OPEN ISSUE, NOT FIXED, root cause unknown - see
+    // `register/icon/classic.ts`'s own header comment for the full history.
     nodeText: (d: { type: string }) => {
       if (d.type === 'server') return '{server}'
       else if (d.type === 'was') return '{was}'
