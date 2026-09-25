@@ -1,0 +1,129 @@
+// Port of legacy `src/brush/canvas/model3d.js` ("chart.brush.canvas.model3d", extend:
+// "chart.brush.canvas.core") - draws a static 3D wireframe model (`brush.model`, a named lookup)
+// by projecting its own local-space `sources` through the axis's `x`/`y`/`z` scales into
+// `vertices`, then stroking each of its `faces` (index polygons into those vertices) as a closed
+// path, once per animation frame (`this.addPolygon(data, callback)`, queued/z-sorted/drained by
+// the inherited `CanvasCoreBrush`).
+//
+// **`jui.include("chart.polygon." + this.brush.model)` has no equivalent in this project's new
+// architecture** - the real original resolves named 3D models through the OLD global
+// `jui.define`/`jui.include` registry (the SAME registry whose absence is the whole reason
+// `element.ts`'s `.is()`/`math.ts`'s `nice(..., true)` are documented, deliberately preserved
+// `ReferenceError`s elsewhere in this project). Rather than reproduce that crash here too (which
+// would leave `canvas.model3d` permanently unusable, unlike those two narrowly-scoped bugs), this
+// ports the SAME real capability through a small LOCAL registry instead -
+// `registerPolygonModel()`/`getPolygonModel()` below - entirely within this project's own
+// authority (no `jui-graph-ts` changes). The real site's own `model3d_f16.js` demo's one real
+// model, `chart.polygon.f16` (`play/chart/resource/f16_model.js`, loaded as a separate `<script>`
+// by the real site, NOT part of the `jui-chart`/`juijs-graph` npm packages at all), is ported to
+// `models/f16.ts` and registered here under `"f16"`.
+import { registerBrush, CanvasCoreBrush, PolygonCore } from 'jui-graph-ts'
+import type { BrushAxisScale } from 'jui-graph-ts'
+import { F16Model } from './models/f16'
+
+/** A `canvas.model3d`-compatible model: `sources` (raw local-space homogeneous vertices,
+ * `[x,y,z,1]`), `faces` (index-triples/-polygons into the PROJECTED `vertices` array, built by
+ * `drawBefore()` below from `sources`), both fixed at construction - `vertices` starts `[]` (per
+ * `PolygonCore`'s own un-initialized field) and is filled in by this brush, not the model itself. */
+export interface PolygonModel extends PolygonCore {
+  sources: Float32Array[]
+  faces: Float32Array[]
+}
+
+const modelRegistry = new Map<string, new () => PolygonModel>()
+
+/** Registers a named 3D model constructor for `canvas.model3d`'s own `brush.model` lookup - this
+ * project's own local stand-in for the real engine's `jui.define("chart.polygon.<name>", ...)`. */
+export function registerPolygonModel(name: string, ctor: new () => PolygonModel): void {
+  modelRegistry.set(name, ctor)
+}
+
+/** Looks up a model registered via `registerPolygonModel()` - `undefined` for an unknown name,
+ * matching the original's own `jui.include(...)` returning `null`/`undefined` for that case
+ * (`drawBefore()`'s own `if (Model3D != null)` guard, ported unchanged below). */
+export function getPolygonModel(name: string): (new () => PolygonModel) | undefined {
+  return modelRegistry.get(name)
+}
+
+registerPolygonModel('f16', F16Model as unknown as new () => PolygonModel)
+
+/** Own `chart.brush.canvas.model3d.setup()` fields - see legacy `canvas/model3d.js`. */
+export const CANVAS_MODEL3D_BRUSH_OWN_DEFAULTS = {
+  model: null as string | null,
+}
+
+export class CanvasModel3DBrush extends CanvasCoreBrush {
+  private model: PolygonModel | null = null
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+    const Model3D = getPolygonModel(brush.model as string)
+
+    if (Model3D != null) {
+      const model = new Model3D()
+
+      for (let i = 0, len = model.sources.length; i < len; i++) {
+        const x = (this.axis.x as BrushAxisScale)(model.sources[i][0])
+        const y = (this.axis.y as BrushAxisScale)(model.sources[i][1])
+        const z = (this.axis.z as BrushAxisScale)(model.sources[i][2])
+
+        model.vertices[i] = new Float32Array([x, y, z, 1])
+      }
+
+      this.model = model
+    }
+  }
+
+  draw = (): void => {
+    if (this.model == null) return
+
+    const canvas = this.canvas as CanvasRenderingContext2D
+    canvas.lineWidth = 0.5
+    canvas.strokeStyle = this.color(0)
+    canvas.beginPath()
+
+    this.addPolygon(this.model, (p) => {
+      const cache: Float32Array[] = []
+      const vertices = p.vertices
+      const faces = p.faces
+
+      for (let i = 0, len = vertices.length; i < len; i++) {
+        const v = vertices[i]
+        cache.push(new Float32Array([v[0], v[1]]))
+      }
+
+      for (let i = 0, len = faces.length; i < len; i++) {
+        const f = faces[i]
+
+        for (let j = 0, len2 = f.length; j < len2; j++) {
+          const targetPoint = cache[f[j]]
+
+          if (targetPoint) {
+            const x = targetPoint[0]
+            const y = targetPoint[1]
+
+            if (j == 0) {
+              canvas.moveTo(x, y)
+            } else {
+              if (j == f.length - 1) {
+                const firstPoint = cache[f[0]]
+                canvas.lineTo(firstPoint[0], firstPoint[1])
+              } else {
+                canvas.lineTo(x, y)
+              }
+            }
+          }
+        }
+      }
+
+      canvas.stroke()
+      canvas.closePath()
+    })
+  }
+
+  static setup(): Record<string, unknown> {
+    return CANVAS_MODEL3D_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('canvas.model3d', CanvasModel3DBrush)

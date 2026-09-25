@@ -121,4 +121,9 @@ import './brush/patternbar'
 import './brush/imagecolumn'
 import './brush/patterncolumn'
 
+// Phase 6, batch 2: canvas.scatter / canvas.scatter3d / canvas.model3d
+import './brush/canvas/scatter'
+import './brush/canvas/scatter3d'
+import './brush/canvas/model3d'
+
 export { GRID_TYPES } from './gridTypes'

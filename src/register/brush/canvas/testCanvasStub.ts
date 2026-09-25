@@ -75,6 +75,10 @@ export function createStubCanvasContext(): StubCanvasContext {
     calls.push('createLinearGradient')
     return { addColorStop: () => {} }
   }
+  stub.createRadialGradient = () => {
+    calls.push('createRadialGradient')
+    return { addColorStop: () => {} }
+  }
 
   return stub
 }
