@@ -126,4 +126,20 @@ import './brush/canvas/scatter'
 import './brush/canvas/scatter3d'
 import './brush/canvas/model3d'
 
+// Phase 6, batch 3: the "grid3d"-axis pseudo-3D (isometric extrusion) bar/column/cylinder/bubble
+// family - a SEPARATE 3D system from the polygon.* family's real rotate+perspective engine.
+import './brush/bar3d'
+import './brush/column3d'
+import './brush/cylinder3d'
+import './brush/clusterbar3d'
+import './brush/clustercolumn3d'
+import './brush/clustercylinder3d'
+import './brush/stackbar3d'
+import './brush/stackcolumn3d'
+import './brush/stackcylinder3d'
+import './brush/fullstackbar3d'
+import './brush/fullstackcolumn3d'
+import './brush/fullstackcylinder3d'
+import './brush/bubble3d'
+
 export { GRID_TYPES } from './gridTypes'

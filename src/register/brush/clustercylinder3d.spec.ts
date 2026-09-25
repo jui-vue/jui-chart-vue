@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import Chart from '../../Chart.vue'
+
+describe('clustercylinder3d brush', () => {
+  it('renders one cylinder3d <g> per (row, target) cell inside a <g class="brush-clustercylinder3d">', () => {
+    const wrapper = mount(Chart, {
+      props: {
+        width: 400,
+        height: 300,
+        axis: [
+          {
+            x: { type: 'block', domain: ['Q1', 'Q2'] },
+            y: { type: 'range', domain: 'total' },
+            c: { type: 'grid3d' },
+            data: [
+              { sales: 12, profit: 10, total: 20 },
+              { sales: 15, profit: 6, total: 20 },
+            ],
+            depth: 20,
+            degree: 30,
+          },
+        ],
+        brush: [{ type: 'clustercylinder3d', target: ['sales', 'profit'] }],
+      },
+    })
+
+    const group = wrapper.element.querySelector('g.brush-clustercylinder3d')
+    expect(group).not.toBeNull()
+    expect(group!.querySelectorAll('ellipse').length).toBe(8)
+  })
+
+  it('setup() defaults topRate:1, outerPadding:5, innerPadding:5', () => {
+    const wrapper = mount(Chart, {
+      props: {
+        width: 200,
+        height: 200,
+        axis: [{ x: { type: 'block', domain: ['Q1'] }, y: { type: 'range', domain: 'total' }, c: { type: 'grid3d' }, data: [{ total: 20 }], depth: 20, degree: 30 }],
+        brush: [{ type: 'clustercylinder3d', target: ['total'] }],
+      },
+    })
+    const builder = (wrapper.vm as unknown as { getBuilder(): { get(type: string, key: number): Record<string, unknown> } }).getBuilder()
+    const brush = builder.get('brush', 0)
+    expect(brush.topRate).toBe(1)
+    expect(brush.outerPadding).toBe(5)
+    expect(brush.innerPadding).toBe(5)
+  })
+})

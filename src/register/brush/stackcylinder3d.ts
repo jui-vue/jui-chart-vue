@@ -1,0 +1,19 @@
+// Port of legacy `src/brush/stackcylinder3d.js` ("chart.brush.stackcylinder3d", extend:
+// "chart.brush.stackcolumn3d") - extends `StackColumn3DBrush` (confirmed from the legacy file's
+// own `extend:` field), reusing its `drawBefore()`/`draw()` wholesale and overriding ONLY
+// `drawMain()`: every stacked segment EXCEPT the first (`index > 0`) has its height shortened by
+// the projected "top" sliver (`sin(radian)*depth`) before building its cylinder, so consecutive
+// cylinders visually butt up against each other without a projection-induced gap/overlap.
+import { registerBrush } from 'jui-graph-ts'
+import { StackColumn3DBrush } from './stackcolumn3d'
+
+export class StackCylinder3DBrush extends StackColumn3DBrush {
+  drawMain(index: number, width: number, height: number, degree: unknown, depth: number): any {
+    const top = Math.sin((this.axis.c as unknown as { radian: number }).radian) * depth
+    const h = index > 0 ? height - top : height
+
+    return this.chart.svg.cylinder3d(this.color(index), width, h, degree as number, depth)
+  }
+}
+
+registerBrush('stackcylinder3d', StackCylinder3DBrush)

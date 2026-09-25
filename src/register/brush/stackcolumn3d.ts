@@ -1,0 +1,77 @@
+// Port of legacy `src/brush/stackcolumn3d.js` ("chart.brush.stackcolumn3d", extend:
+// "chart.brush.core") - the vertical counterpart to `stackbar3d.ts`, with its own `drawMain()`
+// seam for `stackcylinder3d.ts` (`extend: "chart.brush.stackcolumn3d"`) to override. Unlike
+// `stackbar3d.ts`, this one's `group` IS actually used (`group.append(r)`, not `g.append(r)`
+// directly) - no equivalent "unused group" bug here.
+import { CoreBrush, registerBrush } from 'jui-graph-ts'
+import type { BrushAxisScale, BrushData } from 'jui-graph-ts'
+
+type CAxis = (i: unknown, v: unknown) => { x: number; y: number; depth: number }
+type CScale = { radian: number; degree: unknown }
+
+/** Own `chart.brush.stackcolumn3d.setup()` fields - see legacy `stackcolumn3d.js`. */
+export const STACKCOLUMN3D_BRUSH_OWN_DEFAULTS = {
+  outerPadding: 10,
+}
+
+export class StackColumn3DBrush extends CoreBrush {
+  protected g: any
+  private barWidth = 0
+  private zeroXY = { x: 0, y: 0, depth: 0 }
+
+  drawBefore = (): void => {
+    const brush = this.brush as Record<string, unknown>
+    const width = (this.axis.x as BrushAxisScale).rangeBand!()
+
+    this.g = this.chart.svg.group()
+    this.barWidth = width - (brush.outerPadding as number) * 2
+    this.zeroXY = (this.axis.c as unknown as CAxis)(0, 0)
+  }
+
+  drawMain(index: number, width: number, height: number, degree: unknown, depth: number): any {
+    return this.chart.svg.rect3d(this.color(index), width, height, degree as number, depth)
+  }
+
+  draw = (): any => {
+    const brush = this.brush as Record<string, unknown>
+    const target = (brush.target ?? []) as string[]
+    const c = this.axis.c as unknown as CAxis
+
+    this.eachData((data, i) => {
+      const row = data as BrushData
+      const index = i as number
+      const group = this.chart.svg.group()
+      const startX = c(index, 0).x - this.barWidth / 2
+      let colHeight = 0
+
+      for (let j = 0; j < target.length; j++) {
+        const value = row[target[j]]
+        const xy = c(index, value)
+        const top = Math.sin((this.axis.c as unknown as CScale).radian) * xy.depth
+
+        const startY = xy.y + top
+        const height = Math.abs(this.zeroXY.y - xy.y)
+        const r = this.drawMain(j, this.barWidth, height, (this.axis.c as unknown as CScale).degree, xy.depth)
+
+        if (value != 0) {
+          this.addEvent(r, index, j)
+        }
+
+        r.translate(startX, startY - colHeight)
+        group.append(r)
+
+        colHeight += height
+      }
+
+      this.g.append(group)
+    })
+
+    return this.g
+  }
+
+  static setup(): Record<string, unknown> {
+    return STACKCOLUMN3D_BRUSH_OWN_DEFAULTS
+  }
+}
+
+registerBrush('stackcolumn3d', StackColumn3DBrush)
