@@ -43,55 +43,77 @@ export interface WidgetConfig {
   [key: string]: unknown
 }
 
-const props = defineProps<{
-  width?: number | string
-  height?: number | string
-  padding?: number | AxisPadding
-  axis?: AxisConfig | AxisConfig[]
-  brush?: BrushConfig | BrushConfig[]
-  widget?: WidgetConfig | WidgetConfig[]
-  theme?: string | Record<string, unknown>
-  style?: Record<string, unknown>
-  /** Forwarded to `Builder`'s own `render` option (see its `setup()` default: `true`). */
-  render?: boolean
-  /**
-   * Forwarded to `Builder`'s own `icon` option (`{ type, path }` - `Builder.setup()`'s default is
-   * `{ type: 'classic', path: null }`). `path` is what `Builder.setVectorFontIcons()` needs to
-   * actually inject a real `@font-face` rule (a string or array of font file URLs) - WITHOUT it,
-   * `chart.text()`'s `{key}`-style icon placeholders (`parseIconInText()`) still resolve to real
-   * Private-Use-Area codepoints (via `registerIcon('classic', ...)`, always registered - see
-   * `register/icon/classic.ts`), but those codepoints render as invisible/"tofu" glyphs with no
-   * font backing them. Left unset, this component defaults `path` to this project's own bundled
-   * `public/fonts/icomoon.*` files (copied verbatim from the legacy `images/icon/` directory) - a
-   * working default is more useful than a footgun for the common case; pass `icon` explicitly to
-   * override (e.g. a different font, or `path: null` to opt out of the `@font-face` injection
-   * entirely while keeping the `classic` codepoint map registered).
-   *
-   * OPEN ISSUE, NOT FIXED (flagged, not being actively investigated further for now): in real
-   * Chromium, icon glyphs may still render as "tofu" boxes despite the font loading successfully,
-   * the `@font-face` rule being present exactly once in `document.head`, and the CSS `font-family`
-   * cascade resolving correctly (`classic` in the stack) - every layer independently verified
-   * correct except the final glyph paint. A prior investigation attributed this to
-   * `Builder.setVectorFontIcons()`'s specific CSS-injection technique and "fixed" it by changing
-   * that technique - a LATER, more rigorous re-test disproved that diagnosis (the technique was
-   * never the real differentiator; that was a confounded test). The true root cause is unknown -
-   * see `register/icon/classic.ts`'s header comment for the full history.
-   */
-  icon?: { type: string; path?: string | string[] | null }
-  /**
-   * Forwarded to `Builder`'s own `canvas` option (`Builder.setup()`'s default: `false`). Required
-   * for any `chart.brush.canvas.*`/`chart.widget.canvas.*`-family type (`canvas.activebubble`,
-   * `canvas.picker`, etc.) to actually get a real `<canvas>` element/2D context wired onto
-   * `draw.canvas` - see `base/builder.ts`'s `init()`/`initCanvasElement()`. Without it, `Builder`
-   * never creates the `main`/`buffer`/`sub` canvases at all and any canvas-family brush/widget's
-   * `this.canvas` stays `null`.
-   */
-  canvas?: boolean
-  /** Forwarded to `Builder`'s own `event` option - top-level chart events (e.g. `click`, bound by
-   * `Core.mount()` via `on(key, handler)` for each entry) as opposed to a specific brush/widget's
-   * own `event` sub-option (already passed through untouched inside `brush`/`widget` array items). */
-  event?: Record<string, (...args: unknown[]) => unknown>
-}>()
+const props = withDefaults(
+  defineProps<{
+    width?: number | string
+    height?: number | string
+    padding?: number | AxisPadding
+    axis?: AxisConfig | AxisConfig[]
+    brush?: BrushConfig | BrushConfig[]
+    widget?: WidgetConfig | WidgetConfig[]
+    theme?: string | Record<string, unknown>
+    style?: Record<string, unknown>
+    /**
+     * Forwarded to `Builder`'s own `render` option (`Builder.setup()`'s own default: `true` -
+     * "auto re-render on every imperative `axis(i).update()`/`.zoom()`/`.next()`/`.prev()`/
+     * `.screen()`/etc call"). Defaulted to `true` here EXPLICITLY (`withDefaults`, below) - a real,
+     * previously-undocumented bug this closes: Vue's own prop-resolution casts an UNPASSED
+     * `boolean`-typed optional prop to `false` (not `undefined`), never `Builder.setup()`'s actual
+     * `true` default - so any demo that never explicitly writes `:render="..."` at all (the common
+     * case; `render` is normally only ever set to `false` deliberately, for the "mount without
+     * data, then fill it in later via `getBuilder().axis(i).update(...)`" pattern) used to end up
+     * with the OPPOSITE of the engine's real default: `Axis.update()`/`.zoom()`/etc's own `if
+     * (this.chart.isRender()) this.chart.render()` auto-render guard silently never fired for ANY
+     * demo, "render:false" or not. Confirmed against `play/chart/json/brush_axis_value.js` (calls
+     * only `getBuilder().axis(0).update(data)` in `mounted()`, no explicit trailing `render()` -
+     * exactly the pattern this default-mismatch breaks): the bubble brush drew zero circles on the
+     * live site despite `axis(0).data` correctly holding the 4 real rows, purely because
+     * `builder.options.render` was `false`. A demo (like `mixed3_axis_3.js`) that follows its own
+     * imperative calls with an explicit `b.render(true)` was masked from this particular symptom
+     * (that unconditional call doesn't consult `isRender()` at all) - but still silently lost the
+     * engine's own intended default behavior for every OTHER imperative call in between.
+     */
+    render?: boolean
+    /**
+     * Forwarded to `Builder`'s own `icon` option (`{ type, path }` - `Builder.setup()`'s default is
+     * `{ type: 'classic', path: null }`). `path` is what `Builder.setVectorFontIcons()` needs to
+     * actually inject a real `@font-face` rule (a string or array of font file URLs) - WITHOUT it,
+     * `chart.text()`'s `{key}`-style icon placeholders (`parseIconInText()`) still resolve to real
+     * Private-Use-Area codepoints (via `registerIcon('classic', ...)`, always registered - see
+     * `register/icon/classic.ts`), but those codepoints render as invisible/"tofu" glyphs with no
+     * font backing them. Left unset, this component defaults `path` to this project's own bundled
+     * `public/fonts/icomoon.*` files (copied verbatim from the legacy `images/icon/` directory) - a
+     * working default is more useful than a footgun for the common case; pass `icon` explicitly to
+     * override (e.g. a different font, or `path: null` to opt out of the `@font-face` injection
+     * entirely while keeping the `classic` codepoint map registered).
+     *
+     * OPEN ISSUE, NOT FIXED (flagged, not being actively investigated further for now): in real
+     * Chromium, icon glyphs may still render as "tofu" boxes despite the font loading successfully,
+     * the `@font-face` rule being present exactly once in `document.head`, and the CSS `font-family`
+     * cascade resolving correctly (`classic` in the stack) - every layer independently verified
+     * correct except the final glyph paint. A prior investigation attributed this to
+     * `Builder.setVectorFontIcons()`'s specific CSS-injection technique and "fixed" it by changing
+     * that technique - a LATER, more rigorous re-test disproved that diagnosis (the technique was
+     * never the real differentiator; that was a confounded test). The true root cause is unknown -
+     * see `register/icon/classic.ts`'s header comment for the full history.
+     */
+    icon?: { type: string; path?: string | string[] | null }
+    /**
+     * Forwarded to `Builder`'s own `canvas` option (`Builder.setup()`'s default: `false`). Required
+     * for any `chart.brush.canvas.*`/`chart.widget.canvas.*`-family type (`canvas.activebubble`,
+     * `canvas.picker`, etc.) to actually get a real `<canvas>` element/2D context wired onto
+     * `draw.canvas` - see `base/builder.ts`'s `init()`/`initCanvasElement()`. Without it, `Builder`
+     * never creates the `main`/`buffer`/`sub` canvases at all and any canvas-family brush/widget's
+     * `this.canvas` stays `null`.
+     */
+    canvas?: boolean
+    /** Forwarded to `Builder`'s own `event` option - top-level chart events (e.g. `click`, bound by
+     * `Core.mount()` via `on(key, handler)` for each entry) as opposed to a specific brush/widget's
+     * own `event` sub-option (already passed through untouched inside `brush`/`widget` array items). */
+    event?: Record<string, (...args: unknown[]) => unknown>
+  }>(),
+  { render: true },
+)
 
 /** `import.meta.env.BASE_URL` (Vite's own configured `base`, `/` by default) rather than a bare
  * `/fonts/...` literal, so these URLs stay correct if this app is ever deployed under a sub-path
@@ -121,6 +143,100 @@ const assembledOptions = computed(() => ({
 }))
 
 /**
+ * Structural deep clone of whatever `assembledOptions.value` holds, EXCEPT functions/`Date`s
+ * (kept by reference - they're either callbacks the engine must still be able to call, like
+ * `event`/widget `format`, or opaque values `jui-graph-ts` never mutates in place). Mirrors
+ * `jui-graph-ts`'s own internal `deepClone()` (`base/builder.ts`) shape/behavior, reimplemented
+ * here rather than imported since it isn't part of that package's public API.
+ *
+ * **Why this exists - a real, previously-undocumented bug this fix closes**: `assembledOptions`'s
+ * `padding`/`axis`/`brush`/`widget`/`style`/`event` fields are `props.xxx` DIRECTLY (no cloning) -
+ * for an Options-API demo (`data() { return { padding: {...}, axis: [...] } }`), these are
+ * genuinely deep-REACTIVE Vue objects (Vue 3 recursively `reactive()`-ifies a component's own
+ * `data()` return value), and the SAME object identity is handed straight through as the prop
+ * value. `remount()` used to pass `assembledOptions.value` (carrying those live reactive
+ * references) directly into `Builder.mount()` - but `jui-graph-ts`'s own `Core.mergeOptions()`
+ * (`base/core.ts`) MUTATES its `options` argument IN PLACE (a faithful port of the original
+ * engine's own `utility.extend(options, defOpts, true)` mutate-in-place convention), filling in
+ * any keys a level's `static setup()` defaults but the caller left unset - e.g. `Builder.setup()`'s
+ * `padding: {top:50,bottom:50,left:50,right:50}` default, merged with `skip:true` ("only fill
+ * currently-`undefined` keys") into whatever `options.padding` already is. For a demo that passes
+ * an already-object-shaped-but-PARTIAL `padding` (e.g. `padding: { bottom: 60 }`, exactly
+ * `play/chart/json/mixed3_axis_3.js`'s own config), that merge doesn't create a new object - it
+ * WRITES the missing `top`/`left`/`right` keys directly onto the live `props.padding` object,
+ * since that's the exact same reference `options.padding` aliases.
+ *
+ * Two real, compounding consequences, Playwright/vitest-confirmed against the live site, not
+ * just inferred: (1) the user's own reactive `padding` prop is silently corrupted (gains
+ * `top`/`left`/`right` keys it never had) the moment the chart first mounts; (2) far worse, this
+ * `chart-tab-app`-style component's own `watch(assembledOptions, remount, { deep: true })` below
+ * had ALREADY deep-traversed `props.padding` once (at `watch()`-registration time, during this
+ * component's own `setup()`) to collect its reactive dependencies - and Vue's deep-reactivity
+ * bookkeeping treats adding a brand-new key to an already-tracked reactive object as a real
+ * "ADD" mutation, which invalidates ANY effect (including this exact watcher) that previously
+ * enumerated that object's keys. The watcher fires again, calling `remount()` a SECOND time -
+ * tearing down the just-built `Builder` and constructing a completely fresh one from the ORIGINAL,
+ * static `axis`/`brush` prop config. For `mixed3_axis_3.js`'s own "mount without data, then fill
+ * it via `getBuilder().axis(0).update(dataSource)`/`.zoom(start,end)` in `mounted()`" pattern, this
+ * second, spurious remount happens on the very next microtask AFTER that imperative fill already
+ * ran - silently discarding it (the brush ends up rendering ZERO shapes: its `axis.data` is back
+ * to the static, empty-array default, not the real data the demo just loaded) - even though
+ * NEITHER the demo's own `mounted()` code NOR any later widget/event ever intentionally reassigns
+ * any prop. Confirmed via Playwright against the real running site (an `Error.stackTraceLimit`
+ * bump plus a `watch(..., { onTrigger })` probe traced the retrigger to exactly this `padding.top`/
+ * `.left`/`.right` "add", not to anything the demo's own code does) - not merely reasoned about.
+ * The SAME mechanism would corrupt/re-trigger on ANY other object-shaped, partially-specified
+ * top-level option this component forwards by live reference (`style`, a user-supplied `icon`) -
+ * `padding` is simply the one real demo corpus scan (`play/chart/json/*.js`) actually hits, since
+ * `Builder.setup()`'s own `style: {}` default has no keys of its own to ever add.
+ *
+ * The fix, entirely on this side of the `jui-graph-ts` boundary (that package's own mutate-in-place
+ * option-merge convention is a deliberate, 1:1-ported original-engine behavior this project must
+ * not change - see `base/core.ts`'s own `mergeOptions()` doc comment): never hand the engine a
+ * live reference to a Vue-reactive prop value it might mutate. `remount()` now clones
+ * `assembledOptions.value` at this exact boundary before it ever reaches `Builder.mount()` - the
+ * engine is free to mutate its own private copy however its own option-merge/`reload()`/`update()`
+ * machinery normally does (unaffected otherwise), while `props.padding` (and everything else) stays
+ * exactly what the user passed, and the deep watcher below - which still tracks the REAL,
+ * unmutated `props.*` objects, correctly - never sees a spurious change to react to.
+ *
+ * `data`/`origin` keys are deliberately EXEMPTED from this clone (kept by reference, at ANY nesting
+ * depth) - matching `jui-graph-ts`'s OWN internal `deepClone(this.options, { data: true, bind: true
+ * })`/`deepClone(this._options.axis, { data: true, origin: true })` calls (`base/builder.ts`'s
+ * `setDefaultOptions()`/`drawAxis()`), which never clone an axis's `data` either, for the same
+ * reason: several real, already-registered brushes (the `canvas.dot3d`/etc 3D family) intentionally
+ * mutate a data ROW in place (e.g. padding a 2-element `[x,y]` row to `[x,y,0]`) as a documented
+ * side effect callers rely on being able to observe on their OWN array - cloning `data` here would
+ * silently make the engine mutate an inert copy instead. It also preserves the OTHER, declarative
+ * pattern this project's own realtime demos already committed to (mutating `axis[i].data` reactively
+ * in place, e.g. `.push()`, and letting the deep watcher below pick that real change up naturally) -
+ * unaffected either way, since that path never touches `Core.mergeOptions()`'s mutate-in-place merge
+ * at all.
+ */
+function cloneForEngine<T>(value: T, keyInParent?: string): T {
+  if (keyInParent === 'data' || keyInParent === 'origin') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneForEngine(item)) as unknown as T
+  }
+  if (value instanceof Date) {
+    return value
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const key in value as Record<string, unknown>) {
+      out[key] = cloneForEngine((value as Record<string, unknown>)[key], key)
+    }
+    return out as T
+  }
+  // Primitives AND functions (e.g. `event`/widget `format`/`domain` callbacks) - kept by
+  // reference, matching `jui-graph-ts`'s own `deepClone()` fallback for anything that isn't an
+  // array/`Date`/plain object.
+  return value
+}
+
+/**
  * `jui-graph-ts`'s `Builder` has no `reload(options)` method (verified by reading `base/builder.ts`
  * in full - only `Axis` has one) and its own incremental `addBrush`/`removeBrush`/`updateBrush`/
  * `addWidget`/`removeWidget`/`updateWidget`/`setTheme`/`setSize` don't support wholesale-replacing
@@ -147,7 +263,9 @@ function remount(): void {
   // `Builder` never declares/populates `gridTypes` itself (see `register/gridTypes.ts`'s header
   // comment) - stamped on directly before `.mount()`, since `mount()` renders synchronously.
   Object.assign(b, { gridTypes: GRID_TYPES })
-  b.mount(el, assembledOptions.value as never)
+  // See `cloneForEngine()`'s own doc comment above - never hand the engine a live reference to a
+  // Vue-reactive prop value.
+  b.mount(el, cloneForEngine(assembledOptions.value) as never)
 
   builder = b
 }
