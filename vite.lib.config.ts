@@ -9,6 +9,13 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vue()],
   publicDir: false,
+  // `Chart.vue`'s default icon font path is built from `import.meta.env.BASE_URL` (this value),
+  // resolved at build time - without it, that default is bare `/fonts/...`, which 404s (not in
+  // www.jui-vue.io's asset allowlist, and the wrong path regardless). This bundle is actually
+  // deployed at `lib/jui-chart-vue/`, with `fonts/*` copied there by hand from this project's own
+  // `public/fonts/` (see this project's own deploy notes) - matching that real path here makes
+  // the default resolve to `/lib/jui-chart-vue/fonts/...`, where those files actually live.
+  base: '/lib/jui-chart-vue/',
   build: {
     outDir: 'dist-lib',
     emptyOutDir: true,
